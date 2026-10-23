@@ -38,8 +38,8 @@ This is the *only active Creator migration plan* in this repository. Update it r
 | C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | Creator code imported and Core #2000 applied; OS producer #2000 reconciliation still PENDING |
 | C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract integration and independent packages | PASS for source/tests; package publisher integration pending |
 | C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PASS for Go, Windows-native CI and unsigned Windows ZIP; public signing/hardware approval pending |
-| C5 | OS Native helper consumer draft PR #2197, exact Creator source and CI, Surface coordination | IN PROGRESS — OS draft; NOT MERGED |
-| C6 | Eliminate OS legacy implementation only after standalone and OS integration proofs and reference audit | PENDING |
+| C5 | OS Native helper consumer pinned to independent Creator, merged PR #2197, 5/5 CI | PASS — `ordax-os/main@f07fe50d` |
+| C6 | Retire old OS Creator Go source after consumer/publisher migration and full reference proofs | IN PROGRESS — non-destructive candidate PR #2199, producer source still BLOCKING deletion |
 
 ## C1 — history-safe source import
 
@@ -118,7 +118,7 @@ Document original OS SHA, original directory tree, extracted split commit+tree, 
 4. `ordax-os/tests/test_portable_usb_v2_contract.py` references `tools/creator/proof/portable_usb_v2.py` and the old Core CLI; OS `release-pipeline.yml` and `full-bootstrap-media-proof.yml` have old-path filters. Classify test-by-test rather than deleting, duplicating OS contracts, or silently skipping the producer CI.
 5. `ordax-os#2000` remains producer-side and must reconcile its OS workflow/test/doc changes independently. Its OS Base pinned Alpine dependency failure does not authorize relaxing signatures, bypassing physical promotion or editing Foundation.
 
-**Status update:** Creator Native helper source build, exact SHA and read-only dependencies were proven in Creator PR #7. The OS consumer proposal is now [draft PR #2197](https://github.com/ordaxsystems/ordax-os/pull/2197), with exact-source release pipeline CI PASS. **C5 is in progress and is NOT merged; C6 remains pending.** Surface/OS publisher coordination and remaining old-OS source references must be reconciled before OS cutover. Physical write remains unauthorized.
+**Current-state superseding the historical draft evidence below:** Creator Native helper source build and read-only dependencies were proven in Creator PR #7; OS [PR #2197](https://github.com/ordaxsystems/ordax-os/pull/2197) subsequently **merged** at `f07fe50d414e883cc88b11988008e799b17366be` with all 5/5 CI gates passed. **C5 PASS; C6 remains IN PROGRESS.** Physical write remains unauthorized.
 
 
 ## C5 OS Native helper consumer draft — 2026-10-23
@@ -131,3 +131,23 @@ Document original OS SHA, original directory tree, extracted split commit+tree, 
 - OS `tools/creator/physical_promotion.py`, old Creator producer and physical authorization-context hashes, #2000 and unrelated Surface/Foundation/Buildroot code **remain untouched**. Do not remove historical `tools/creator/` until all active publisher consumers have migrated with exact-source-hash reauthorization. No hardware write, release publish, signing keys or public physical authorization.
 - **Exit gate:** obtain explicit integration coordination with the agent modifying Surface/OS Native release assembly, verify current OS main/other PRs, complete all relevant exact-head CI, and only then consider merge of OS #2197. Mark C5 done only after actual merge/proven current OS consumer. C6 and full Creator product signing/physical proof remain separate.
 
+
+## C5 complete; C6 consumer audit (live status, 2026-10-23)
+
+The dated C5 draft section above is retained as an evidence record, not current execution state.
+
+**Merged OS consumer cutover:** [ordax-os PR #2197](https://github.com/ordaxsystems/ordax-os/pull/2197) merged to `main@f07fe50d414e883cc88b11988008e799b17366be`. All **5/5 PR-head checks PASS**: Release Pipeline 40039904876, Surface External Source Consumer 40039904975, Native Disposable Storage 40039904834, Foundation 40039904815, Public Site 40039904925. It continues to pin the Creator code revision `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`, with no old source copy or publisher transfer. The subsequent `main` CI is a separate post-merge verification.
+
+**C6 in progress:** [ordax-os draft PR #2199](https://github.com/ordaxsystems/ordax-os/pull/2199), exact head `dc8fcf6c2be7be768f48a208d6958dfcbe5ce475`, extracts a reusable OS checkout/verification action from the release pipeline and repoints the OS-owned **unsigned, non-destructive Creator Candidate** to the exact external source. This CI validation is distinct from Creator's own standalone code build, since it verifies consumption of authoritative OS contracts. This change is **not merged** at the time of this record. Its CI has approved Creator Candidate 40040816780 and Release Pipeline 40040816790; Foundation 40040816774 was still in progress as this snapshot was written. Do not treat passing branches as integration.
+
+**OS old-source dependency categories (audit of OS `main@f07fe50d`):**
+
+- **Already transferred:** Linux Native read-only helper in the OS release assembly to pinned independent Creator, while preserving the existing OS signing/release chain.
+- **Consumer build pending transition:** OS Creator Candidate (draft #2199); other candidate/toolkit jobs including `.github/workflows/windows-prototype-toolkit.yml`.
+- **Developer rollout/publishing — DO NOT RETIRE or redirect blindly:** `creator-dev-channel.yml` currently builds from `tools/creator` and carries `contents:write` / development release upload. A safe cutover must preserve update channel URL/manifest compatibility, source identity, non-destructive policy and release ownership; no automatic publication by a source-only PR.
+- **Official consumer, signing and physical publisher:** `creator-official-candidate.yml`, `creator-code-signing-boundary.yml`, `creator-physical-publisher.yml`, `physical-write-promotion.yml`, `first-physical-usb-payload.yml`, `full-bootstrap-media-proof.yml`, `tools/release-signing/` and `tools/publisher/` have separate OS-owned signatures/authorization contracts that **must not** be copied into Creator or deleted.
+- **Physical authorization trust context:** `tools/creator/physical_promotion.py` hashes `tools/creator/go.*`, Core, Windows host, physical channel and raw writer source. Moving the code changes the authorization context and requires a safe **new source+revision-bound policy** with proof of fail-closed default; old authorization hashes cannot be reused.
+- **OS-owned Python build/proof scripts and test references:** `tools/creator/assemble.py`, `proof/`, several producer Python scripts and many `tests/test_*.py` paths remain operational. Classify as OS release producer, Creator code consumer, or historical evidence. No physical-media access to retire dependencies; do not suppress tests or duplicate the Go module.
+- **Producer PR #2000:** Core/CLI changes already adopted in independent Creator; workflow/test/docs work remains open in `ordax-os#2000`. Reconcile only its producer-owned changes against current OS main and new Creator source lock; no duplicate Core source inventory.
+
+**C6 exit gate:** before deleting `ordax-os/tools/creator/`, replace all active old-module imports, CI builds, runtime source paths, OS publisher source-hash references, contract paths and test dependencies with exact independently owned Creator code or correctly separated OS producer modules; prove complete CI (including unsigned Windows, physical fail-closed and signed-release contracts), check no unresolved references, and preserve user-facing channel compatibility. Physical hardware validation requires separate explicit device-specific authorization.
