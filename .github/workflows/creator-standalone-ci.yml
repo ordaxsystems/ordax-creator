@@ -111,6 +111,27 @@ jobs:
           set -euo pipefail
           go test -count=1 ./...
           go vet ./...
+      - name: Build deterministic Linux Native read-only target helper for OS consumer parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          deps="$(go list -deps ./cmd/ordax-creator-native-targets)"
+          if grep -Eq 'github.com/ordaxsystems/ordax-creator/(host/windows|physicalchannel|cmd/ordax-creator-physical-test)' <<<"$deps"; then
+            echo 'Native read-only target discovery imported physical writer or Windows backend' >&2
+            exit 1
+          fi
+          for dir in "$RUNNER_TEMP/ordax-native-helper-a" "$RUNNER_TEMP/ordax-native-helper-b"; do
+            mkdir -p "$dir"
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$dir/ordax-native-install-targets" ./cmd/ordax-creator-native-targets
+          done
+          cmp "$RUNNER_TEMP/ordax-native-helper-a/ordax-native-install-targets" "$RUNNER_TEMP/ordax-native-helper-b/ordax-native-install-targets"
+          go version -m "$RUNNER_TEMP/ordax-native-helper-a/ordax-native-install-targets" | grep -F 'github.com/ordaxsystems/ordax-creator/cmd/ordax-creator-native-targets'
+          sha256sum "$RUNNER_TEMP/ordax-native-helper-a/ordax-native-install-targets"
+          echo "CREATOR_NATIVE_HELPER_SOURCE_SHA=$GITHUB_SHA"
+          echo 'NATIVE_HELPER_REPEAT_BUILD_IDENTICAL=PASS'
+          echo 'NATIVE_HELPER_WIN32_OR_PHYSICAL_WRITER_IMPORTED=NO'
+          echo 'NATIVE_HELPER_OS_RELEASE_PROMOTED=NO'
+          echo 'PHYSICAL_DEVICE_TOUCHED=NO'
       - name: Windows GUI and unprivileged CLI cross-build
         shell: bash
         run: |

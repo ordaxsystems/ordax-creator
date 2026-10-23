@@ -23,3 +23,12 @@ This ledger records origin independently of chat. It is **NOT** evidence that a 
 History rule: a file copy with the old commit mentioned in text is insufficient. The imported Creator branch must contain genuine Git ancestry to the filtered historical Creator subtree and prove byte-identical source tree at the immutable OS source commit. No source or OS contract cutover before this receipt is completed.
 
 Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS producer and physical release authority not cut over; unsigned builds are review-only.
+
+## 2026-10-23 additional exact-head acceptance
+
+- Creator Windows-native development code and CI merged on main via PR #6: `e7432abf30f178a495196b576cb7fd212006d45e`.
+- [Linux Go tests/immutable OS contract integration](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999005): PASS.
+- [Windows 2025 native Win32 control smoke, unit/security tests, read-only CLI execution](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999017): PASS.
+- [Unsigned Windows deterministic ZIP](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999018): PASS.
+- OS source Creator tree has not diverged at OS main `70b0f7eb5d5085be0d4f176f5232def37c7a2a24`: `cc287d6dafba00b91a1c3e2f86d154ad4a943cd0`.
+- OS Native source helper consumer, OS producer/promoter and public signing remain not cut over or authorized.
