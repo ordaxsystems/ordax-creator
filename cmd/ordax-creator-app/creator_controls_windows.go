@@ -141,6 +141,8 @@ func creatorControlColor(message uint32, hdc, handle uintptr) uintptr {
 
 func measureCreatorItem(lParam uintptr) uintptr {
     if lParam == 0 { return 0 }
+    // WM_MEASUREITEM LPARAM is a synchronous Windows-owned MEASUREITEMSTRUCT*.
+    // Borrow only for the current callback; never retain its pointer.
     item := (*creatorMeasureItem)(unsafe.Pointer(lParam))
     if item.CtlType != odtComboBox { return 0 }
     item.ItemHeight = 29
@@ -168,6 +170,8 @@ func drawCreatorComboItem(data *creatorDrawItem) uintptr {
 
 func drawCreatorNativeItem(lParam uintptr) uintptr {
     if lParam == 0 { return 0 }
+    // WM_DRAWITEM LPARAM is a synchronous Windows-owned DRAWITEMSTRUCT*.
+    // Borrow only for the current callback; never retain its pointer.
     data := (*creatorDrawItem)(unsafe.Pointer(lParam))
     if data.CtlType == odtComboBox {
         return drawCreatorComboItem(data)
@@ -185,6 +189,8 @@ func creatorControlCaption(hwnd uintptr) string {
 
 func drawCreatorButton(lParam uintptr) uintptr {
     if lParam == 0 { return 0 }
+    // WM_DRAWITEM LPARAM is a synchronous Windows-owned DRAWITEMSTRUCT*.
+    // Borrow only for the current callback; never retain its pointer.
     data := (*creatorDrawItem)(unsafe.Pointer(lParam))
     if data.CtlType != 4 { return 0 } // ODT_BUTTON
     disabled := data.ItemState&odsDisabled != 0

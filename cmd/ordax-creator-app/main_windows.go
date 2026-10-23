@@ -548,7 +548,9 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		return 0
 	case wmGetMinMaxInfo:
 		if lParam != 0 {
-			info := (*creatorMinMaxInfo)(unsafe.Pointer(lParam))
+			// WM_GETMINMAXINFO LPARAM is a borrowed native MINMAXINFO*.
+            // It is valid only during the synchronous Win32 callback.
+            info := (*creatorMinMaxInfo)(unsafe.Pointer(lParam))
 			info.MinTrackSize = point{X: 1120, Y: 710}
 		}
 		return 0
