@@ -1,0 +1,115 @@
+name: Creator Windows native UI and trust smoke (no media access)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/creator-windows-native.yml
+      - .github/ordax-os-contracts.lock.json
+      - cmd/**
+      - core/**
+      - host/**
+      - appchannel/**
+      - componentchannel/**
+      - physicalchannel/**
+      - internal/**
+      - update/**
+      - go.mod
+  pull_request:
+    paths:
+      - .github/workflows/creator-windows-native.yml
+      - .github/ordax-os-contracts.lock.json
+      - cmd/**
+      - core/**
+      - host/**
+      - appchannel/**
+      - componentchannel/**
+      - physicalchannel/**
+      - internal/**
+      - update/**
+      - go.mod
+
+permissions:
+  contents: read
+
+jobs:
+  windows-native:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Creator (no writable Git credentials)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.1'
+          check-latest: false
+          cache: false
+      - name: Acquire exact OS contracts from sole CI input lock
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $lock = Get-Content '.github/ordax-os-contracts.lock.json' -Raw | ConvertFrom-Json
+          if ($lock.repository -ne 'ordaxsystems/ordax-os' -or $lock.contracts_root -ne 'docs/contracts' -or $lock.physical_release_authorization -ne $false -or $lock.commit -notmatch '^[0-9a-f]{40}$') {
+            throw 'Invalid OS contract dependency lock'
+          }
+          $root = Join-Path $env:RUNNER_TEMP 'ordax-os-contracts'
+          git clone --quiet --single-branch --filter=blob:none --no-checkout https://github.com/ordaxsystems/ordax-os.git $root
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot clone authoritative OS contracts' }
+          git -C $root sparse-checkout init --cone
+          if ($LASTEXITCODE -ne 0) { throw 'Sparse init failed' }
+          git -C $root sparse-checkout set docs/contracts
+          if ($LASTEXITCODE -ne 0) { throw 'Sparse selection failed' }
+          git -C $root checkout --quiet --detach $lock.commit
+          if ($LASTEXITCODE -ne 0) { throw 'Exact OS commit is unavailable' }
+          $actual = (git -C $root rev-parse HEAD).Trim()
+          if ($actual -ne $lock.commit) { throw 'OS source commit mismatch' }
+          $contracts = Join-Path $root 'docs/contracts'
+          foreach ($name in @('minimal-bootstrap.json','physical-prepared-media.json')) {
+            $path = Join-Path $contracts $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing canonical OS contract $name" }
+            $document = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            if ($name -eq 'minimal-bootstrap.json' -and $document.'$schema' -ne 'prototype-ordax.minimal-bootstrap/4') { throw 'Minimal bootstrap schema mismatch' }
+            if ($name -eq 'physical-prepared-media.json' -and $document.'$schema' -ne 'prototype-ordax.physical-prepared-media/1') { throw 'Physical prepared media schema mismatch' }
+            $digest = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Output "CANONICAL_OS_CONTRACT_SHA256=$name $digest"
+          }
+          "ORDAX_OS_CONTRACTS_DIR=$contracts" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "CANONICAL_OS_SOURCE_COMMIT=$actual"
+          Write-Output 'OS_CONTRACT_SOURCE_AUTHORITY=READ_ONLY'
+      - name: Native Windows Go tests including isolated real Win32 control creation
+        shell: pwsh
+        env:
+          ORDAX_CREATOR_WINDOWS_UI_SMOKE: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./core ./appchannel ./componentchannel ./physicalchannel ./internal/atomicfile ./update ./host/windows ./cmd/ordax-creator-app ./cmd/ordax-creator ./cmd/ordax-creator-native-targets
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows Go tests failed' }
+          go vet ./core ./appchannel ./componentchannel ./physicalchannel ./internal/atomicfile ./update ./host/windows ./cmd/ordax-creator-app ./cmd/ordax-creator
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows Go vet failed' }
+          Write-Output 'WIN32_UI_TEST_RUN_ON_WINDOWS=PASS'
+          Write-Output 'PHYSICAL_TARGETS_ENUMERATED_BY_CI=NO'
+      - name: Invoke only explicitly non-destructive Windows CLI operations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:RUNNER_TEMP 'ordax-creator-inspection.exe'
+          go build -trimpath -buildvcs=false -o $exe ./cmd/ordax-creator-inspection
+          if ($LASTEXITCODE -ne 0) { throw 'Inspection build failed' }
+          $raw = (& $exe status | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'Inspection status failed' }
+          $inspection = $raw | ConvertFrom-Json
+          if ($inspection.mode -ne 'development-inspection-only' -or $inspection.raw_backend_linked -ne $false -or $inspection.build.physical_write_authorized -ne $false -or $inspection.build.ready -ne $false) {
+            throw 'Unexpected physical authority in public Windows development inspection status'
+          }
+          $launcher = Join-Path $env:RUNNER_TEMP 'ordax-creator-launcher.exe'
+          go build -trimpath -buildvcs=false -o $launcher ./cmd/ordax-creator-launcher
+          if ($LASTEXITCODE -ne 0) { throw 'Launcher build failed' }
+          $version = (& $launcher --launcher-version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -ne 'ORDAX_CREATOR_LAUNCHER_VERSION=2') { throw 'Windows launcher version smoke failed' }
+          Write-Output $version
+          Write-Output 'WINDOWS_UNPRIVILEGED_EXECUTION=PASS'
+          Write-Output 'PHYSICAL_WRITE_AUTHORIZED=NO'

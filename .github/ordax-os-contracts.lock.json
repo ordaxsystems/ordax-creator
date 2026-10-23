@@ -1,0 +1,9 @@
+{
+  "$schema": "prototype-ordax.creator-os-contracts-source-lock/1",
+  "repository": "ordaxsystems/ordax-os",
+  "commit": "f65acc4fb9f8ded376fc9b44b4c7c2068c793265",
+  "contracts_root": "docs/contracts",
+  "consumption": "read-only-ci-integration-tests",
+  "canonical_contract_owner": "ordax-os",
+  "physical_release_authorization": false
+}

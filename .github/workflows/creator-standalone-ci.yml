@@ -64,10 +64,18 @@ jobs:
           echo 'PHYSICAL_DEVICE_TOUCHED=NO'
       - name: Acquire read-only contracts at immutable OS commit
         shell: bash
-        env:
-          ORDAX_OS_SOURCE_COMMIT: f65acc4fb9f8ded376fc9b44b4c7c2068c793265
         run: |
           set -euo pipefail
+          ORDAX_OS_SOURCE_COMMIT="$(python3 - <<'PY'
+          import json,re
+          lock=json.load(open('.github/ordax-os-contracts.lock.json'))
+          if lock.get('repository')!='ordaxsystems/ordax-os' or lock.get('contracts_root')!='docs/contracts' or lock.get('physical_release_authorization') is not False:
+              raise SystemExit('invalid pinned OS contract owner/authorization boundary')
+          source=lock.get('commit','')
+          if not re.fullmatch(r'[0-9a-f]{40}',source): raise SystemExit('invalid pinned OS SHA')
+          print(source)
+          PY
+          )"
           os_contracts="$RUNNER_TEMP/ordax-os-contracts"
           git clone --quiet --single-branch --filter=blob:none --no-checkout https://github.com/ordaxsystems/ordax-os.git "$os_contracts"
           git -C "$os_contracts" sparse-checkout init --cone
