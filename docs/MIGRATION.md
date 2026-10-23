@@ -1,7 +1,7 @@
 # MIGRATION — Independent Creator extraction
 
 **Owner:** ordaxsystems/ordax-creator  
-**Status:** ACTIVE — PRE-CODE / NOT CUT OVER  
+**Status:** ACTIVE — INDEPENDENT CREATOR MAIN, OS CUTOVER PENDING  
 **Started:** 2026-10-23  
 **Nature:** execution plan and immutable handoff, not a new OS contract or physical-release authorization.
 
@@ -95,3 +95,12 @@ Document original OS SHA, original directory tree, extracted split commit+tree, 
 - [Unsigned Windows candidate](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036493128): PASS at `f72fae0c2a8450fc114f2c7d686aea8b2285d616`; four unprivileged Windows executables build twice with byte-for-byte identical outputs; fixed-timestamp ZIP plus source hash/provenance. Artifact `ordax-creator-UNSIGNED-READONLY-f72fae0c2a8450fc114f2c7d686aea8b2285d616` excludes physical helper, trust remains UNRESOLVED and public writing/publishing remain disabled.
 - Still pending: real Windows GUI/native-platform smoke and installation packaging, final official signer/Authenticode custody, signed distribution channels, OS consumer integration, physical validation with separate authorization, reconciliation/closing producer OS PR #2000, and OS source cleanup after proving equivalence. Do not mark C5/C6 done.
 
+
+## Creator mainline cutover of implementation source (not OS consumer) — 2026-10-23
+
+- Creator PR #1 integrated as merge commit `525737374c89d92e0712989489d77d45c40784ab`.
+- Creator PR #3 integrated as merge commit `d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef`, preserving history split as a real Git ancestor. The effective Go packages now live on Creator main, without `source-import/`.
+- Full standalone CI against the exact source PR head `e8905207dd7f200363f53fb74ad31941b17ba11e`: [PASS](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036689755), including Go tests/vet, OS immutable read-only contract schemas, development binding UNRESOLVED, Windows GUI/CLI cross-build and RAW backend build-tag isolation.
+- Deterministic unsigned Windows development ZIP: [PASS](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036493128). The imported code includes NO producer-side OS release signing or physical authorization tooling.
+- Existing migration-only import/stage workflows are historical and are being removed from the active `main` CI route now that source ancestry is recorded; long-lived Go tests and unsigned candidate builds must execute on `main` push and Creator PRs.
+- **No OrdaX OS consumer cutover, publisher code signing, Windows hardware GUI smoke, real write authorization or removal of old OS Creator yet.** C5 and C6 remain pending. Active OS PR #2000 must still reconcile its producer-owned changes with current OS main and Surface.
