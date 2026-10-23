@@ -88,6 +88,16 @@ jobs:
           echo "ORDAX_OS_CONTRACTS_DIR=$os_contracts/docs/contracts" >> "$GITHUB_ENV"
           echo "CANONICAL_OS_SOURCE_COMMIT=$ORDAX_OS_SOURCE_COMMIT"
           echo 'OS_CONTRACT_OWNER_UNCHANGED=YES'
+      - name: Prove read-only Windows development trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(grep -Fc 'buildPhysicalTrustBase64 = "UNRESOLVED"' cmd/ordax-creator-app/physical_channel_windows.go)" -eq 1
+          test "$(grep -Fc 'buildPhysicalTrustSHA256 = "UNRESOLVED"' cmd/ordax-creator-app/physical_channel_windows.go)" -eq 1
+          test -f cmd/ordax-creator-app/owner_prototype_backend_disabled_windows.go
+          test ! -e cmd/ordax-creator-app/owner_payload
+          echo 'CREATOR_DEVELOPMENT_TRUST_UNRESOLVED=PASS'
+          echo 'CREATOR_PUBLISHER_PHYSICAL_BACKEND=NOT_LINKED'
       - name: Unit tests and Go vet (no media access)
         run: |
           set -euo pipefail

@@ -1,21 +1,20 @@
 # OrdaX Creator
 
-Official standalone source repository for **OrdaX Creator**, the OrdaX verified-media preparation application and reusable host-neutral Creator Core.
+Standalone source of **OrdaX Creator**, using the verified-media preparation Core extracted from [ordax-os](https://github.com/ordaxsystems/ordax-os). The Go module now uses `github.com/ordaxsystems/ordax-creator` and includes the existing Windows Win32 GUI, platform adapters and three signed-consumer channels.
 
-> Migration in progress. This repository is **not yet an operational, signed or public-physical-write-capable Creator**. Its OS implementation currently resides in [ordaxsystems/ordax-os/tools/creator](https://github.com/ordaxsystems/ordax-os/tree/main/tools/creator). Do not assume this new repository contains production-capable executables until the source history and independent CI have been migrated and proved.
+**Migration status: development source and independent checks exist; OS consumer cutover and public physical-write release are NOT complete.** The implementation remaining under `ordax-os/tools/creator` must only be removed after verified integration. The `ordax-os` continues as sole producer/authority for Base, kernel, boot, official releases, media/storage layouts, physical promotion and signing policy.
 
-## Ownership
+## Development and validation
 
-- **This repository** will own the Creator Core, Windows UI, removable-device adapters, exact-target verification and consent implementation, post-write readback and verification consumers.
-- **[ordax-os](https://github.com/ordaxsystems/ordax-os)** remains the sole authority for Base, kernel, bootstrap, official OS release artifacts, boot/storage/media layouts, release-producer contracts and physical release promotion. The Creator consumes only immutable, verified producer inputs; it must not generate a competing image, artifact catalog, updater, signing root or physical authorization policy.
-- The OrdaX Desktop will reuse this Creator Core through an explicit supported integration; it must not implement a second flashing backend.
+- Core and safe CLI: `go test -count=1 ./...` and `go vet ./...`. Without an explicit OS contract integration root, only OS-contract-dependent integration cases skip; other Core tests run offline.
+- Exact upstream contract verification: pass `ORDAX_OS_CONTRACTS_DIR` pointing to the read-only `docs/contracts` of a pinned and verified `ordax-os` Git commit. CI acquires the exact recorded OS revision automatically, without committing contract copies here.
+- Safe Windows cross-build: `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -o OrdaX-Creator-App.exe ./cmd/ordax-creator-app`. Default build leaves the physical publisher trust binding **UNRESOLVED**, excludes tagged RAW backend and cannot enable physical apply.
+- The Windows development ZIP is **unsigned, non-destructive and review-only**. It contains no elevated physical writer; its CI receipt records identical repeated binaries, SHA-256 and provenance. It is neither a verified public signed release nor proof that hardware writes are authorized.
 
-Read [AGENTS.md](AGENTS.md), [docs/MIGRATION.md](docs/MIGRATION.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before making changes. The new repository is in **PREPARATION** status; none of its files are a substitute for the canonical OS machine-readable contracts.
+## Single-owner boundaries
 
-### Safety
+Creator alone will own Core, UI, adapters, source verification and narrow physical consumer helper. OrdaX Desktop must reuse the same Core. The OS alone owns authoritative boot/media contracts, OS artifact producer, release signing and physical promotion. No second image builder, artifact catalog, updater, signature root, 17-source inventory or write-consent mechanism may be added.
 
-**No disk/USB destructive operation, physical release approval, trust rotation or signing key operation is authorized by this repository's creation or its CI.** Use regular disposable files and simulated or QEMU devices only. Hardware writes require separate explicit per-target approval and all publisher/consumer verification gates.
+See [AGENTS.md](AGENTS.md), [migration execution ledger](docs/MIGRATION.md), [architecture](docs/ARCHITECTURE.md), [provenance](docs/PROVENANCE.md), and the open [OS PR #2000](https://github.com/ordaxsystems/ordax-os/pull/2000).
 
-### Source provenance
-
-The source baseline for auditing is `ordax-os/main@f65acc4fb9f8ded376fc9b44b4c7c2068c793265` (2026-10-23). The open [ordax-os#2000](https://github.com/ordaxsystems/ordax-os/pull/2000) contains independently valuable Core source-binding work and must be reconciled, not discarded. This initial README **is not a source import**; the migration ledger must record exact original, split and imported Git commits before any cutover.
+**Safety:** never operate on a physical USB/SSD/HDD without separate explicit authorization for that exact target and completed publisher/consumer gates. CI uses disposable files only.

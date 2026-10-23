@@ -36,8 +36,8 @@ This is the *only active Creator migration plan* in this repository. Update it r
 | C0 | Source owners, migration plan, provenance and guarded independent CI foundation | IN PROGRESS |
 | C1 | Exact-commit history extraction from tools/creator/ with Git ancestry, source tree equality and receipt | PASS — import receipt in docs/evidence |
 | C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | IN PROGRESS — consumer packages staged, #2000 reconciliation pending |
-| C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract resolver and independent packages | PENDING |
-| C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PENDING |
+| C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract integration and independent packages | PASS for source/tests; package publisher integration pending |
+| C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PASS for non-destructive Linux CI and unsigned Windows ZIP; native Windows smoke/signing pending |
 | C5 | Creator-specific OS integration draft PR and Surface reconciliation; no premature merge | PENDING |
 | C6 | Eliminate OS legacy implementation only after standalone and OS integration proofs and reference audit | PENDING |
 
@@ -85,3 +85,13 @@ Document original OS SHA, original directory tree, extracted split commit+tree, 
 - Explicitly excluded OS release/promotion root Python scripts and windows publisher scripts pending per-file producer audit.
 - Converted Go import prefix to github.com/ordaxsystems/ordax-creator, without creating a second Core.
 - This branch is NOT cut over; CI tests and canonical contracts integration remain required.
+
+## Source consolidation and independent evidence — 2026-10-23
+
+- History import: original OS `f65acc4fb9f8ded376fc9b44b4c7c2068c793265` tree `cc287d6dafba00b91a1c3e2f86d154ad4a943cd0` equals split commit `d38a92ab75c2ae94319740f3240b785b2ad819f1` tree; actual two-parent ancestry merge `162dbe4a546c95a768c442f6779c4670a031465b`; source snapshot commit `d78287f6b1e3b551d5c41a52765e95eb6f7668af`. [History CI](https://github.com/ordaxsystems/ordax-creator/actions/runs/40035831823): PASS.
+- Consumer-only code extraction: 153 Go files, a single Creator root module, one existing Core, app/component/physical signed-consumer packages; removed transitional `source-import/`. No OS producer authorization, release/publisher Python script or Windows publisher script was retained as active Creator source. [Extraction CI](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036089102): PASS.
+- Audited source comparison: for the three Creator Core/CLI paths changed by OS PR #2000, source OS `main@f65acc4f` blob IDs **equaled the PR's base**; adopted exact PR head `a8c11fb636e2c652aa2c0c24f4fa8ad5ae349deb` versions and rewrote only the Go module prefix. Creator adoption commit `0680dae87fbf3f7e683fb9c432b46678e344a32c`. OS producer workflow/test/document changes remain in OS PR #2000; do not close or merge its conflicting producer work by assumption.
+- Test-path decoupling `f08c2b212fd96ad60360e139ff78fc15fb4f67fe`: explicit `ORDAX_OS_CONTRACTS_DIR` for contract-integration tests. Unset runs offline unit tests; set but missing/invalid fails closed. CI sparse-checks out and verifies exact OS source Git commit and canonical schemas, hashes read-only inputs, then runs **all** Go tests, `go vet`, Win32 GUI/CLI builds and RAW build-tag isolation. [Standalone CI](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036405670): PASS.
+- [Unsigned Windows candidate](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036493128): PASS at `f72fae0c2a8450fc114f2c7d686aea8b2285d616`; four unprivileged Windows executables build twice with byte-for-byte identical outputs; fixed-timestamp ZIP plus source hash/provenance. Artifact `ordax-creator-UNSIGNED-READONLY-f72fae0c2a8450fc114f2c7d686aea8b2285d616` excludes physical helper, trust remains UNRESOLVED and public writing/publishing remain disabled.
+- Still pending: real Windows GUI/native-platform smoke and installation packaging, final official signer/Authenticode custody, signed distribution channels, OS consumer integration, physical validation with separate authorization, reconciliation/closing producer OS PR #2000, and OS source cleanup after proving equivalence. Do not mark C5/C6 done.
+
