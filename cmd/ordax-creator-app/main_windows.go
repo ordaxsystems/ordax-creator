@@ -548,7 +548,9 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		return 0
 	case wmGetMinMaxInfo:
 		if lParam != 0 {
-			info := (*creatorMinMaxInfo)(unsafe.Pointer(lParam))
+			// WM_GETMINMAXINFO LPARAM is a synchronous Windows-owned MINMAXINFO*.
+            // Borrow only during this native callback; never retain the pointer.
+            info := (*creatorMinMaxInfo)(unsafe.Pointer(lParam))
 			info.MinTrackSize = point{X: 1120, Y: 710}
 		}
 		return 0
@@ -628,7 +630,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	return result
 }
 
-func createMainWindow() {
+func createMainWindow(startServices bool) {
 	loadCreatorVisualTheme()
 	controls := initCommonControlsEx{Size: uint32(unsafe.Sizeof(initCommonControlsEx{})), ICC: iccProgressClass}
 	procInitCommonControlsEx.Call(uintptr(unsafe.Pointer(&controls)))
@@ -680,10 +682,14 @@ func createMainWindow() {
 	setCreatorStatus(creatorT(msgRefreshSearching))
 	setProgressIdle()
 
-	procShowWindow.Call(mainWindow, swShow)
-	procUpdateWindow.Call(mainWindow)
-	beginRefresh()
-	beginUpdateCheck(false)
+	// Native smoke tests create the real Win32 controls without starting
+	// discovery, downloads, update checks, elevation or any physical I/O.
+	if startServices {
+		procShowWindow.Call(mainWindow, swShow)
+		procUpdateWindow.Call(mainWindow)
+		beginRefresh()
+		beginUpdateCheck(false)
+	}
 }
 
 func messageLoop() int {
@@ -704,7 +710,7 @@ func messageLoop() int {
 func main() {
 	runtime.LockOSThread()
 	setCreatorLocale(string(loadCreatorLocalePreference()))
-	createMainWindow()
+	createMainWindow(true)
 	if code := messageLoop(); code != 0 {
 		panic("Windows message loop failed")
 	}
