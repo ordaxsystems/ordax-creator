@@ -34,8 +34,8 @@ This is the *only active Creator migration plan* in this repository. Update it r
 | Phase | Deliverable | State |
 | --- | --- | --- |
 | C0 | Source owners, migration plan, provenance and guarded independent CI foundation | IN PROGRESS |
-| C1 | Exact-commit history extraction from tools/creator/ with Git ancestry, source tree equality and receipt | PENDING |
-| C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | PENDING |
+| C1 | Exact-commit history extraction from tools/creator/ with Git ancestry, source tree equality and receipt | PASS — import receipt in docs/evidence |
+| C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | IN PROGRESS — consumer packages staged, #2000 reconciliation pending |
 | C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract resolver and independent packages | PENDING |
 | C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PENDING |
 | C5 | Creator-specific OS integration draft PR and Surface reconciliation; no premature merge | PENDING |
@@ -77,3 +77,11 @@ OS must remain producer of Base, kernel, bootstrap/release and media/physical po
 ## Evidence checklist for completion
 
 Document original OS SHA, original directory tree, extracted split commit+tree, Creator merge parent, classification of source files and imported commit, OS #2000 reconciliation, contract SHA/version pins, test/run URLs at exact heads, Windows unsigned artifact hashes/reproducibility, package/Authenticode status, OS consumer cutover and deletion PRs, and an explicit separate statement of physical authorization. Until then: **NOT DONE, PHYSICAL_WRITE_AUTHORIZED=NO**.
+
+## C2 staging receipt (automated source migration)
+
+- Moved Core, cmd, host, platform, internal, appchannel, componentchannel, physicalchannel, update, proof, go.mod and version.json from immutable history into Creator module root.
+- Removed the temporary source-import directory in the branch; files omitted from active Creator stay reachable via source history.
+- Explicitly excluded OS release/promotion root Python scripts and windows publisher scripts pending per-file producer audit.
+- Converted Go import prefix to github.com/ordaxsystems/ordax-creator, without creating a second Core.
+- This branch is NOT cut over; CI tests and canonical contracts integration remain required.
