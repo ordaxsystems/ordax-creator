@@ -3,7 +3,7 @@ name: Creator standalone CI (non-destructive)
 on:
   push:
     branches:
-      - migration/creator-core-extraction-20261023
+      - main
     paths:
       - .github/workflows/creator-standalone-ci.yml
       - core/**
