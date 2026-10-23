@@ -38,3 +38,9 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 - Proposed, **not merged**: `ordax-os#2197@082d5afc374f2e667b53c8003a12076b9438410e`, based on OS `f4119971e8e73b49b6e0c9310b64240881e4d514`.
 - Canonical OS external source pin: Creator `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9`, Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`.
 - Native release pipeline `40039904876` PASS, Surface external consumer `40039904975` PASS, disposable Native storage `40039904834` PASS. No OS cutover was merged. All physical release authorization and public signing remain unchanged.
+
+## 2026-10-23 C5 merge and C6 preparation
+
+- OS Creator Native helper consumer **merged** via `ordax-os#2197`, merge commit `f07fe50d414e883cc88b11988008e799b17366be`. Its 5 exact-head CI checks all PASS; OS release publisher/signatures and physical authorization remain OS-owned.
+- C6 second consumer candidate **draft** `ordax-os#2199@dc8fcf6c2be7be768f48a208d6958dfcbe5ce475`: shared immutable source checkout plus OS Creator Candidate build from `ordax-creator`. No duplicate Go module, no old-code deletion and no publication. Await exact-head/merge evidence.
+- Safety: `tools/creator/physical_promotion.py` OS source context still contains legacy Go paths; do **not** remove/move them before re-binding authorization and demonstrating fail-closed producer gate.
