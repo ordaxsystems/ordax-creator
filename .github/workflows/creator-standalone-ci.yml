@@ -1,0 +1,127 @@
+name: Creator standalone CI (non-destructive)
+
+on:
+  push:
+    branches:
+      - migration/creator-core-extraction-20261023
+    paths:
+      - .github/workflows/creator-standalone-ci.yml
+      - core/**
+      - cmd/**
+      - host/**
+      - appchannel/**
+      - componentchannel/**
+      - physicalchannel/**
+      - internal/**
+      - update/**
+      - go.mod
+  pull_request:
+    paths:
+      - .github/workflows/creator-standalone-ci.yml
+      - core/**
+      - cmd/**
+      - host/**
+      - appchannel/**
+      - componentchannel/**
+      - physicalchannel/**
+      - internal/**
+      - update/**
+      - go.mod
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Creator only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Setup exact Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.1'
+          check-latest: false
+          cache: false
+      - name: Assert one executable Core and no old imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f go.mod
+          test -f core/portable_sources.go
+          test -f cmd/ordax-creator-app/main_windows.go
+          test ! -e source-import
+          test ! -e authorize_physical_write.py
+          test ! -e physical_promotion.py
+          if grep -R -l 'github.com/ordaxsystems/ordax-os/tools/creator' --include='*.go' ./; then
+            echo 'stale OS Creator module references remain' >&2
+            exit 1
+          fi
+          echo 'CREATOR_SINGLE_MODULE_SOURCE=PASS'
+          echo 'PHYSICAL_DEVICE_TOUCHED=NO'
+      - name: Acquire read-only contracts at immutable OS commit
+        shell: bash
+        env:
+          ORDAX_OS_SOURCE_COMMIT: f65acc4fb9f8ded376fc9b44b4c7c2068c793265
+        run: |
+          set -euo pipefail
+          os_contracts="$RUNNER_TEMP/ordax-os-contracts"
+          git clone --quiet --single-branch --filter=blob:none --no-checkout https://github.com/ordaxsystems/ordax-os.git "$os_contracts"
+          git -C "$os_contracts" sparse-checkout init --cone
+          git -C "$os_contracts" sparse-checkout set docs/contracts
+          git -C "$os_contracts" checkout --quiet --detach "$ORDAX_OS_SOURCE_COMMIT"
+          test "$(git -C "$os_contracts" rev-parse HEAD)" = "$ORDAX_OS_SOURCE_COMMIT"
+          test -f "$os_contracts/docs/contracts/minimal-bootstrap.json"
+          test -f "$os_contracts/docs/contracts/physical-prepared-media.json"
+          python3 - "$os_contracts/docs/contracts" <<'PY'
+          import hashlib,json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          for name,schema in (("minimal-bootstrap.json","prototype-ordax.minimal-bootstrap/4"),("physical-prepared-media.json","prototype-ordax.physical-prepared-media/1")):
+              content=(root/name).read_bytes()
+              obj=json.loads(content)
+              if obj.get("$schema")!=schema: raise SystemExit("OS schema mismatch: "+name)
+              print("CANONICAL_OS_CONTRACT_SHA256",name,hashlib.sha256(content).hexdigest())
+          PY
+          echo "ORDAX_OS_CONTRACTS_DIR=$os_contracts/docs/contracts" >> "$GITHUB_ENV"
+          echo "CANONICAL_OS_SOURCE_COMMIT=$ORDAX_OS_SOURCE_COMMIT"
+          echo 'OS_CONTRACT_OWNER_UNCHANGED=YES'
+      - name: Prove read-only Windows development trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(grep -Fc 'buildPhysicalTrustBase64 = "UNRESOLVED"' cmd/ordax-creator-app/physical_channel_windows.go)" -eq 1
+          test "$(grep -Fc 'buildPhysicalTrustSHA256 = "UNRESOLVED"' cmd/ordax-creator-app/physical_channel_windows.go)" -eq 1
+          test -f cmd/ordax-creator-app/owner_prototype_backend_disabled_windows.go
+          test ! -e cmd/ordax-creator-app/owner_payload
+          echo 'CREATOR_DEVELOPMENT_TRUST_UNRESOLVED=PASS'
+          echo 'CREATOR_PUBLISHER_PHYSICAL_BACKEND=NOT_LINKED'
+      - name: Unit tests and Go vet (no media access)
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+      - name: Windows GUI and unprivileged CLI cross-build
+        shell: bash
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$RUNNER_TEMP/OrdaX-Creator-App.exe" ./cmd/ordax-creator-app
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$RUNNER_TEMP/ordax-creator.exe" ./cmd/ordax-creator
+          sha256sum "$RUNNER_TEMP/OrdaX-Creator-App.exe" "$RUNNER_TEMP/ordax-creator.exe"
+          echo 'WINDOWS_GUI_CROSSBUILD=PASS'
+          echo 'PHYSICAL_WRITE_AUTHORIZED=NO'
+      - name: Windows RAW backend isolation contract (compile only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go list -f '{{range .GoFiles}}{{println .}}{{end}}' ./host/windows)"
+          gated="$(CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go list -tags ordax_raw_backend -f '{{range .GoFiles}}{{println .}}{{end}}' ./host/windows)"
+          for file in raw_handle_write_windows.go volume_lease_windows.go elevation_windows.go raw_runtime_windows.go; do
+            if grep -qx "$file" <<<"$base"; then echo "raw backend leaked into normal build: $file" >&2; exit 1; fi
+            if ! grep -qx "$file" <<<"$gated"; then echo "tagged raw backend missing: $file" >&2; exit 1; fi
+          done
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go test -c -tags ordax_raw_backend -o "$RUNNER_TEMP/ordax-raw-backend.test.exe" ./host/windows
+          rm -f "$RUNNER_TEMP/ordax-raw-backend.test.exe"
+          echo 'CREATOR_RAW_BACKEND_GATED=PASS'
