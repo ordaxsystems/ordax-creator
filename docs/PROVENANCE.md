@@ -32,3 +32,9 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 - [Unsigned Windows deterministic ZIP](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999018): PASS.
 - OS source Creator tree has not diverged at OS main `70b0f7eb5d5085be0d4f176f5232def37c7a2a24`: `cc287d6dafba00b91a1c3e2f86d154ad4a943cd0`.
 - OS Native source helper consumer, OS producer/promoter and public signing remain not cut over or authorized.
+
+## 2026-10-23 external OS Native consumer proposal
+
+- Proposed, **not merged**: `ordax-os#2197@082d5afc374f2e667b53c8003a12076b9438410e`, based on OS `f4119971e8e73b49b6e0c9310b64240881e4d514`.
+- Canonical OS external source pin: Creator `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9`, Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`.
+- Native release pipeline `40039904876` PASS, Surface external consumer `40039904975` PASS, disposable Native storage `40039904834` PASS. No OS cutover was merged. All physical release authorization and public signing remain unchanged.
