@@ -3,7 +3,6 @@ package creatorcore
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -44,7 +43,7 @@ type preparedMediaContract struct {
 
 func loadPreparedMediaContractForTest(t *testing.T) preparedMediaContract {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "docs", "contracts", "physical-prepared-media.json")
+	path := canonicalContractPathForTest(t, "physical-prepared-media.json")
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read prepared media contract: %v", err)

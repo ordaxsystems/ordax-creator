@@ -62,6 +62,32 @@ jobs:
           fi
           echo 'CREATOR_SINGLE_MODULE_SOURCE=PASS'
           echo 'PHYSICAL_DEVICE_TOUCHED=NO'
+      - name: Acquire read-only contracts at immutable OS commit
+        shell: bash
+        env:
+          ORDAX_OS_SOURCE_COMMIT: f65acc4fb9f8ded376fc9b44b4c7c2068c793265
+        run: |
+          set -euo pipefail
+          os_contracts="$RUNNER_TEMP/ordax-os-contracts"
+          git clone --quiet --single-branch --filter=blob:none --no-checkout https://github.com/ordaxsystems/ordax-os.git "$os_contracts"
+          git -C "$os_contracts" sparse-checkout init --cone
+          git -C "$os_contracts" sparse-checkout set docs/contracts
+          git -C "$os_contracts" checkout --quiet --detach "$ORDAX_OS_SOURCE_COMMIT"
+          test "$(git -C "$os_contracts" rev-parse HEAD)" = "$ORDAX_OS_SOURCE_COMMIT"
+          test -f "$os_contracts/docs/contracts/minimal-bootstrap.json"
+          test -f "$os_contracts/docs/contracts/physical-prepared-media.json"
+          python3 - "$os_contracts/docs/contracts" <<'PY'
+          import hashlib,json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          for name,schema in (("minimal-bootstrap.json","prototype-ordax.minimal-bootstrap/4"),("physical-prepared-media.json","prototype-ordax.physical-prepared-media/1")):
+              content=(root/name).read_bytes()
+              obj=json.loads(content)
+              if obj.get("$schema")!=schema: raise SystemExit("OS schema mismatch: "+name)
+              print("CANONICAL_OS_CONTRACT_SHA256",name,hashlib.sha256(content).hexdigest())
+          PY
+          echo "ORDAX_OS_CONTRACTS_DIR=$os_contracts/docs/contracts" >> "$GITHUB_ENV"
+          echo "CANONICAL_OS_SOURCE_COMMIT=$ORDAX_OS_SOURCE_COMMIT"
+          echo 'OS_CONTRACT_OWNER_UNCHANGED=YES'
       - name: Unit tests and Go vet (no media access)
         run: |
           set -euo pipefail

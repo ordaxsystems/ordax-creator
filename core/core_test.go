@@ -5,18 +5,13 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
 func canonicalManifestBytes(t *testing.T) []byte {
 	t.Helper()
-	_, here, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate test source")
-	}
-	path := filepath.Clean(filepath.Join(filepath.Dir(here), "..", "..", "..", "docs", "contracts", "minimal-bootstrap.json"))
+	path := canonicalContractPathForTest(t, "minimal-bootstrap.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read canonical manifest: %v", err)
