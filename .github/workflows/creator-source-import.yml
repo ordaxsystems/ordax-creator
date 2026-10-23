@@ -1,0 +1,79 @@
+name: Creator source history extraction (non-destructive)
+
+on:
+  push:
+    branches:
+      - migration/creator-foundation-20261023
+    paths:
+      - .github/workflows/creator-source-import.yml
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Creator migration foundation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Extract exactly the verified OS Creator history
+        shell: bash
+        env:
+          SOURCE_OS_COMMIT: f65acc4fb9f8ded376fc9b44b4c7c2068c793265
+        run: |
+          set -euo pipefail
+          dest='migration/creator-history-import'
+          remote="$(git remote get-url origin)"
+          case "$remote" in *ordax-creator*) ;; *) echo "wrong target repository" >&2; exit 1;; esac
+          if git ls-remote --exit-code --heads origin "$dest" >/dev/null; then
+            echo "refusing to overwrite existing import branch" >&2
+            exit 1
+          fi
+          os_dir="$RUNNER_TEMP/ordax-os-source"
+          git clone --quiet --single-branch --no-checkout https://github.com/ordaxsystems/ordax-os.git "$os_dir"
+          git -C "$os_dir" cat-file -e "$SOURCE_OS_COMMIT^{commit}"
+          directory_tree="$(git -C "$os_dir" rev-parse "$SOURCE_OS_COMMIT:tools/creator")"
+          split_commit="$(git -C "$os_dir" subtree split --prefix=tools/creator "$SOURCE_OS_COMMIT")"
+          split_tree="$(git -C "$os_dir" rev-parse "$split_commit^{tree}")"
+          test "$directory_tree" = "$split_tree" || {
+            echo "Creator subtree split tree does not match canonical source tree" >&2
+            exit 1
+          }
+          git fetch --no-tags "$os_dir" "$split_commit"
+          git switch -c "$dest"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git merge -s ours --no-ff --allow-unrelated-histories -m 'history(creator): retain OS Creator path ancestry' "$split_commit"
+          git read-tree --prefix=source-import/ -u "$split_commit"
+          test -f source-import/go.mod
+          test -f source-import/core/portable_sources.go
+          test -f source-import/cmd/ordax-creator/main.go
+          mkdir -p docs/evidence
+          {
+            echo '# Verified Creator source import receipt'
+            echo
+            echo 'OS repository: ordaxsystems/ordax-os'
+            echo 'OS directory: tools/creator/'
+            echo "OS source commit: $SOURCE_OS_COMMIT"
+            echo "OS source directory tree: $directory_tree"
+            echo "Extracted subtree commit: $split_commit"
+            echo "Extracted subtree tree: $split_tree"
+            echo 'Source tree equality: PASS'
+            echo 'Imported source status: QUARANTINED — not active, not a release'
+            echo 'Physical write authorized: NO'
+          } > docs/evidence/source-history-import.md
+          git add source-import docs/evidence/source-history-import.md
+          git commit -m 'chore(creator): stage source snapshot with real history ancestry'
+          git push origin "HEAD:refs/heads/$dest"
+          echo "SOURCE_OS_COMMIT=$SOURCE_OS_COMMIT"
+          echo "SOURCE_DIRECTORY_TREE=$directory_tree"
+          echo "SPLIT_COMMIT=$split_commit"
+          echo "SPLIT_TREE=$split_tree"
+          echo "CREATOR_IMPORT_HEAD=$(git rev-parse HEAD)"
+          echo 'PHYSICAL_DEVICE_TOUCHED=NO'
+          echo 'PHYSICAL_WRITE_AUTHORIZED=NO'
