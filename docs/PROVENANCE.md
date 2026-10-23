@@ -17,7 +17,7 @@ This ledger records origin independently of chat. It is **NOT** evidence that a 
 | Creator integrated history import commit | 162dbe4a546c95a768c442f6779c4670a031465b (two parents) and d78287f6b1e3b551d5c41a52765e95eb6f7668af |
 | Rewritten standalone module commit | 335b7e75ae0a0825015c1fcd19e7dcef5407dd3d; PR #2000 Core addition 0680dae87fbf3f7e683fb9c432b46678e344a32c |
 | Independently verified Creator tests and Windows package | Core CI run 40036689755 PASS; unsigned Windows candidate run 40036493128 PASS |
-| OS consumer integration and deletion commits | PENDING |
+| OS consumer integration and deletion commits | Native #2197 and Candidate #2199 and Windows toolkit #2200 integrated; legacy deletion PENDING |
 | Physical write authorization | NONE |
 
 History rule: a file copy with the old commit mentioned in text is insufficient. The imported Creator branch must contain genuine Git ancestry to the filtered historical Creator subtree and prove byte-identical source tree at the immutable OS source commit. No source or OS contract cutover before this receipt is completed.
@@ -49,3 +49,9 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 
 - OS #2199 merged in `main@7677226def5fd027d37a84a8c7981c3c90d49b10` after PR-head Creator Candidate 40040816780, Native Release Pipeline 40040816790 and Foundation Contract 40040816774 — all PASS.
 - OS still holds publisher signing, physical authorization and the historically tracked `tools/creator/` pending additional active-workflow cutovers. No official signed/public or physical release was produced by this migration.
+
+## 2026-10-23 Windows toolkit independent Creator source accepted
+
+- `ordax-os#2200` merged as OS `main@e01f4a92d43278fa66ebc68847469dfbdbc47c11`. Exact PR head `4151d23b9b18ce619d0f532d8cb65f83a061b42e` passed all four required CI workflows: Windows Toolkit 40041985452, Creator Candidate 40041985411, Native Release Pipeline 40041985404, Foundation 40041985438.
+- Toolkit Creator implementation code is now sourced from pinned `ordax-creator@8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` (Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`), while the OS remains source authority for the release-signing Go module, trust ceremony, system.tar and physical authorization. Both separate source identities appear in CI provenance.
+- Common exact-source action now normalizes CRLF when used by native Windows Git Bash, with repository and SHA/tree validation preserved. No Windows code-signing certificate or public physical write permission was granted.
