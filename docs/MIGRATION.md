@@ -35,9 +35,9 @@ This is the *only active Creator migration plan* in this repository. Update it r
 | --- | --- | --- |
 | C0 | Source owners, migration plan, provenance and guarded independent CI foundation | IN PROGRESS |
 | C1 | Exact-commit history extraction from tools/creator/ with Git ancestry, source tree equality and receipt | PASS — import receipt in docs/evidence |
-| C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | IN PROGRESS — consumer packages staged, #2000 reconciliation pending |
+| C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | Creator code imported and Core #2000 applied; OS producer #2000 reconciliation still PENDING |
 | C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract integration and independent packages | PASS for source/tests; package publisher integration pending |
-| C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PASS for non-destructive Linux CI and unsigned Windows ZIP; native Windows smoke/signing pending |
+| C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PASS for Go, Windows-native CI and unsigned Windows ZIP; public signing/hardware approval pending |
 | C5 | Creator-specific OS integration draft PR and Surface reconciliation; no premature merge | PENDING |
 | C6 | Eliminate OS legacy implementation only after standalone and OS integration proofs and reference audit | PENDING |
 
@@ -104,3 +104,19 @@ Document original OS SHA, original directory tree, extracted split commit+tree, 
 - Deterministic unsigned Windows development ZIP: [PASS](https://github.com/ordaxsystems/ordax-creator/actions/runs/40036493128). The imported code includes NO producer-side OS release signing or physical authorization tooling.
 - Existing migration-only import/stage workflows are historical and are being removed from the active `main` CI route now that source ancestry is recorded; long-lived Go tests and unsigned candidate builds must execute on `main` push and Creator PRs.
 - **No OrdaX OS consumer cutover, publisher code signing, Windows hardware GUI smoke, real write authorization or removal of old OS Creator yet.** C5 and C6 remain pending. Active OS PR #2000 must still reconcile its producer-owned changes with current OS main and Surface.
+
+## Native Windows acceptance and OS source dependency cutover — 2026-10-23
+
+- Creator [PR #6](https://github.com/ordaxsystems/ordax-creator/pull/6) merged as `e7432abf30f178a495196b576cb7fd212006d45e` with **3/3 exact-head CI checks PASS**: [standalone Linux Core](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999005), [actual Windows 2025 runner tests](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999017), and [unsigned deterministic Windows ZIP](https://github.com/ordaxsystems/ordax-creator/actions/runs/40037999018). Windows native UI test creates actual Win32 window/controls without triggering refresh, update, disk discovery, UAC, physical writer or network. Default physical button stays disabled. CLI smoke invokes read-only inspection `status` and launcher `--launcher-version` only. All signed consumer tests executed on Windows. Windows Go vet has a **narrow, explicitly audited four-callback Win32 LPARAM pointer ABI exception**; other packages use strict vet.
+- Single OS contract dependency lock `.github/ordax-os-contracts.lock.json` pins the *external authoritative source revision*, not contract content. Both Linux and Windows jobs verify the full exact OS commit and schema while keeping all source bytes read-only. OS source `tools/creator/` tree at OS `main@70b0f7eb5d5085be0d4f176f5232def37c7a2a24` remained unchanged from the historical extracted tree `cc287d6dafba00b91a1c3e2f86d154ad4a943cd0`.
+
+### C5/C6 verified dependencies that forbid premature OS deletion
+
+1. `ordax-os/tools/native-release-assembly/build.py` (at exact OS `70b0f7eb`) builds `system/bin/ordax-native-install-targets` from `tools/creator/go.mod`, `core/`, `host/linux/` and `cmd/ordax-creator-native-targets/`. This is a read-only Native installation helper built into the **OS release**; its final publisher remains OS. After extraction, the **single** implementation stays in Creator while the OS must build it from an exact Creator source commit without mirroring code.
+2. Canonical OS `docs/contracts/native-release-assembly.json` and `docs/contracts/build-autonomy.json` contain the old source input paths; `docs/contracts/native-installation.json` records the helper and native source discovery function paths. Repoint contracts only as part of one coordinated OS consumer cutover PR with updated tests and proven deterministic build.
+3. `ordax-os/tools/creator/physical_promotion.py` is **OS physical authorization/publisher authority** and currently hashes Creator Go source paths inside the OS authorization context. Move/reshape its source authority only with a fresh canonical owner-accepted release policy; never infer that an existing authorization hash is still valid after a path/commit cutover.
+4. `ordax-os/tests/test_portable_usb_v2_contract.py` references `tools/creator/proof/portable_usb_v2.py` and the old Core CLI; OS `release-pipeline.yml` and `full-bootstrap-media-proof.yml` have old-path filters. Classify test-by-test rather than deleting, duplicating OS contracts, or silently skipping the producer CI.
+5. `ordax-os#2000` remains producer-side and must reconcile its OS workflow/test/doc changes independently. Its OS Base pinned Alpine dependency failure does not authorize relaxing signatures, bypassing physical promotion or editing Foundation.
+
+**Next exit gate:** independently prove the *Linux Native read-only helper* from Creator Core is reproducible, has a precise source SHA and does not link Windows/physical writer. Only then design/validate an OS-specific PR to consume that pinned source. **C5/C6 remain PENDING** until tests and producer coordination finish. Physical write remains unauthorized.
+
