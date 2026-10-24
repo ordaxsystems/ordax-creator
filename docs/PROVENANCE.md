@@ -76,3 +76,9 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 - `ordax-os#2204` merged at `main@45635425b946780e52f113e832c156e8ccd183f7`. Exact PR head `e9edc6e77595752f234398ea0076ede96b3e8a21`, native Windows dev candidate [40051646441](https://github.com/ordaxsystems/ordax-os/actions/runs/40051646441) PASS (**publish job skipped**), Foundation [40051646431](https://github.com/ordaxsystems/ordax-os/actions/runs/40051646431) PASS.
 - Exact source pin remains `ordax-creator@8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9`, tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`. Development manifest V1 `source_commit` now identifies this implementation owner revision, not the OS publisher revision; review-only provenance preserves both source owners. OS retains public rolling release publication authority with manual-main-only write permission.
 - Developer release assets were **not** reuploaded by the PR. Publication and physical signing remain separate and unauthorized by source checkout alone.
+
+## 2026-10-23 OS release-signing publisher scripts moved without legacy duplicates
+
+- `ordax-os#2205` merged as OS `main@ce68bc6ed259b7e8914706f2f7eb9deaf6506a76`. Exact-head 9/9 CI PASS, including Windows Authenticode 40052634694, official candidate 40052634699, Release Signing 40052634763 and Foundation 40052634709.
+- Publisher PowerShell handoff/verification/finalization scripts moved to `tools/release-signing/windows/` and old source paths deleted atomically, with stable artifact filenames. First USB operator read-only readiness follows the OS publisher path; no physical authorization hash context was changed. Creator implementation still pinned to independent Git `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`.
+- No actual signing, public GitHub Release or media write. Remaining C6 blocker: legacy physical context hash inputs and OS release/media producer Python/Golang path consumers.
