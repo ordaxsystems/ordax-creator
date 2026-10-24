@@ -82,3 +82,8 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 - `ordax-os#2205` merged as OS `main@ce68bc6ed259b7e8914706f2f7eb9deaf6506a76`. Exact-head 9/9 CI PASS, including Windows Authenticode 40052634694, official candidate 40052634699, Release Signing 40052634763 and Foundation 40052634709.
 - Publisher PowerShell handoff/verification/finalization scripts moved to `tools/release-signing/windows/` and old source paths deleted atomically, with stable artifact filenames. First USB operator read-only readiness follows the OS publisher path; no physical authorization hash context was changed. Creator implementation still pinned to independent Git `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`.
 - No actual signing, public GitHub Release or media write. Remaining C6 blocker: legacy physical context hash inputs and OS release/media producer Python/Golang path consumers.
+
+## 2026-10-23 Standalone Creator component candidate source migrated
+
+- OS #2206 merged as main `01460fd5008d231da204bbfce99d152827d05b94`, exact-head component workflow `40053662944` PASS and Foundation `40053662824` PASS. The unsigned component inspection and packaging code now use pinned independent Creator commit `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`.
+- OS retains signed channel manifest /1 authority and OS source commit; actual Creator implementation provenance is separate in the non-published CI bundle. No Ed25519 signing, physical media authorization or public release was performed.
