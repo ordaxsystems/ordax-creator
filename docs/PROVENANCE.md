@@ -60,3 +60,8 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 
 - `ordax-os#2201` merged to OS `main@0d2011e6f704ba7ebdfaba5435cf77adf378e175`; exact PR-head CI Windows 40043640272 PASS and Foundation 40043640248 PASS.
 - Windows unsigned GUI/launcher source is pinned to independent Creator commit `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`. OS retains Authenticode/Ed25519 publication contracts, verification/finalizer scripts, publisher Go tools, trust keys and physical authorization; no public release was made.
+
+## 2026-10-23 Official Creator handoff source adopted by OS
+
+- OS #2202 **MERGED** as `main@fe462f09cd70baeadb515de4a605fef40fbbc769` after Creator Official Candidate 40048288274, Physical USB Backend Safety 40048288414, Disposable Media 40048288288, Foundation 40048288386 — **4/4 PASS**.
+- The unsigned official handoff's implementation is pinned to `ordax-creator@8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9`, Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`; OS publisher scripts, signature keys/ceremony and authorization remain under `ordax-os`. The handoff records Creator source commit/tree and OS source_commit separately. Negative wrong-source Windows test passed, never invoking physical media or public release signing.
