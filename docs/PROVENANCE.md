@@ -65,3 +65,8 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 
 - OS #2202 **MERGED** as `main@fe462f09cd70baeadb515de4a605fef40fbbc769` after Creator Official Candidate 40048288274, Physical USB Backend Safety 40048288414, Disposable Media 40048288288, Foundation 40048288386 — **4/4 PASS**.
 - The unsigned official handoff's implementation is pinned to `ordax-creator@8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9`, Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`; OS publisher scripts, signature keys/ceremony and authorization remain under `ordax-os`. The handoff records Creator source commit/tree and OS source_commit separately. Negative wrong-source Windows test passed, never invoking physical media or public release signing.
+
+## 2026-10-23 Developer-channel unexpected reupload corrected
+
+- Existing OS workflow `Creator Development Update Channel` run `40048588473` successfully reuploaded the `creator-dev` prerelease when #2202 altered an OS publisher-only PS1 file. Verified asset creation approximately 2026-10-24 01:12Z. **Not** a signed Stable release, physical authorization or new Creator code version; this highlighted a wrong trigger rooted in the old duplicated source tree.
+- OS #2203 merged as `main@7c62fc810efce4d46737cdf24c4cd1df87683af4`, exact PR-head Foundation 40048898395 PASS. Legacy OS `creator-dev` publisher now manual-main-only, with existing URL/assets retained. This is an interim safety gate until the source and release workflow transition to independent `ordax-creator` and separate publisher credentials.
