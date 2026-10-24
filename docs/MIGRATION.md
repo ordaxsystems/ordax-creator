@@ -1,11 +1,11 @@
 # MIGRATION — Independent Creator extraction
 
 **Owner:** ordaxsystems/ordax-creator  
-**Status:** ACTIVE — INDEPENDENT CREATOR MAIN, OS CUTOVER PENDING  
+**Status:** C6 CODE EXTRACTION COMPLETE (2026-10-24); separate Stable signing and physical release gates remain under OS ownership  
 **Started:** 2026-10-23  
 **Nature:** execution plan and immutable handoff, not a new OS contract or physical-release authorization.
 
-This is the *only active Creator migration plan* in this repository. Update it rather than creating a second roadmap.
+This is the *canonical Creator migration handoff and historical execution record* in this repository. Dated intermediate sections document their state at the time, not current open gates. The closing C6 evidence section below supersedes historical snapshots. Update this file rather than creating a second roadmap.
 
 ## Verified source and target
 
@@ -13,7 +13,7 @@ This is the *only active Creator migration plan* in this repository. Update it r
 - Initial Creator main: 4d32db78183eee586f5aaad930753afabb5400b3 (documentation bootstrap, no executable).
 - Audited OS main: f65acc4fb9f8ded376fc9b44b4c7c2068c793265; **recheck at every execution**, never treat the dated SHA as moving main.
 - OS source root: tools/creator/; original module github.com/ordaxsystems/ordax-os/tools/creator, Go 1.27, product version 0.6.2-dev.
-- OS #2000 (a8c11fb636e2c652aa2c0c24f4fa8ad5ae349deb) is an OPEN/DRAFT six-file single-inventory refactor; preserve. At that head, 12/13 workflows passed: First Physical USB Payload failed at OS Stable Base's pinned Alpine ca-certificates version; the new Core 17-source tests passed. Do not modify Base to make Creator CI green.
+- Historical 2026-10-23 baseline: OS #2000 (a8c11fb636e2c652aa2c0c24f4fa8ad5ae349deb) was an OPEN/DRAFT six-file single-inventory refactor; it is now MERGED (see final C6 evidence below). At that head, 12/13 workflows passed: First Physical USB Payload failed at OS Stable Base's pinned Alpine ca-certificates version; the new Core 17-source tests passed. Do not modify Base to make Creator CI green.
 - OS #2193 remains a separate Creator-documentation handoff draft; no merge into OS until coordination with Surface agent.
 - Existing OS machine-readable code-signing contract has publish_allowed=false; no public signed Creator or physical write permission exists.
 
@@ -33,13 +33,13 @@ This is the *only active Creator migration plan* in this repository. Update it r
 
 | Phase | Deliverable | State |
 | --- | --- | --- |
-| C0 | Source owners, migration plan, provenance and guarded independent CI foundation | IN PROGRESS |
+| C0 | Source owners, migration plan, provenance and guarded independent CI foundation | PASS — completed extraction foundation |
 | C1 | Exact-commit history extraction from tools/creator/ with Git ancestry, source tree equality and receipt | PASS — import receipt in docs/evidence |
-| C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | Creator code imported and Core #2000 applied; OS producer #2000 reconciliation still PENDING |
-| C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract integration and independent packages | PASS for source/tests; package publisher integration pending |
-| C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PASS for Go, Windows-native CI and unsigned Windows ZIP; public signing/hardware approval pending |
+| C2 | File-by-file producer/consumer classification, adoption of OS #2000 without duplicated 17-source inventory | PASS — OS #2000 producer/consumer reconciliation merged |
+| C3 | Canonical Creator Go module, import/path rewriting, immutable OS contract integration and independent packages | PASS — source and independent OS consumers; OS remains publisher |
+| C4 | Go and Windows build/test, fail-closed device/security regressions, deterministic unsigned packages and hashes | PASS for development evidence; production signing and hardware approval are separate OS gates |
 | C5 | OS Native helper consumer pinned to independent Creator, merged PR #2197, 5/5 CI | PASS — `ordax-os/main@f07fe50d` |
-| C6 | Retire old OS Creator Go source after consumer/publisher migration and full reference proofs | IN PROGRESS — nine independent-source consumers incl. payload CLI; Owner #2210 is separate draft; physical consent-context hashes and OS media/publisher references still block old Go deletion |
+| C6 | Retire old OS Creator Go source after consumer/publisher migration and full reference proofs | PASS — OS #2222 removed 154 duplicate Go/module files; OS #2000 merged 17-source bindings |
 
 ## C1 — history-safe source import
 
@@ -76,7 +76,7 @@ OS must remain producer of Base, kernel, bootstrap/release and media/physical po
 
 ## Evidence checklist for completion
 
-Document original OS SHA, original directory tree, extracted split commit+tree, Creator merge parent, classification of source files and imported commit, OS #2000 reconciliation, contract SHA/version pins, test/run URLs at exact heads, Windows unsigned artifact hashes/reproducibility, package/Authenticode status, OS consumer cutover and deletion PRs, and an explicit separate statement of physical authorization. Until then: **NOT DONE, PHYSICAL_WRITE_AUTHORIZED=NO**.
+Document original OS SHA, original directory tree, extracted split commit+tree, Creator merge parent, classification of source files and imported commit, OS #2000 reconciliation, contract SHA/version pins, test/run URLs at exact heads, Windows unsigned artifact hashes/reproducibility, package/Authenticode status, OS consumer cutover and deletion PRs, and an explicit separate statement of physical authorization. Final C6 evidence is recorded below. **C6 source extraction DONE; PHYSICAL_WRITE_AUTHORIZED=NO**.
 
 ## C2 staging receipt (automated source migration)
 

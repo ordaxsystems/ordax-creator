@@ -2,7 +2,7 @@
 
 Standalone source of **OrdaX Creator**, using the verified-media preparation Core extracted from [ordax-os](https://github.com/ordaxsystems/ordax-os). The Go module now uses `github.com/ordaxsystems/ordax-creator` and includes the existing Windows Win32 GUI, platform adapters and three signed-consumer channels.
 
-**Migration status: development source and independent checks exist; OS consumer cutover and public physical-write release are NOT complete.** The implementation remaining under `ordax-os/tools/creator` must only be removed after verified integration. The `ordax-os` continues as sole producer/authority for Base, kernel, boot, official releases, media/storage layouts, physical promotion and signing policy.
+**Migration status: C6 source extraction and OS consumer cutover COMPLETE (2026-10-24).** OS PRs [#2222](https://github.com/ordaxsystems/ordax-os/pull/2222) and [#2000](https://github.com/ordaxsystems/ordax-os/pull/2000) removed the duplicate Go implementation and integrated the independent 17-source bindings. OS-owned Python media producers remain under `ordax-os/tools/creator/` by design. The `ordax-os` remains sole producer/authority for Base, kernel, boot, official releases, media/storage layouts, physical promotion and signing policy. **No signed Stable release or live hardware write is authorized by C6.**
 
 ## Development and validation
 
@@ -15,6 +15,6 @@ Standalone source of **OrdaX Creator**, using the verified-media preparation Cor
 
 Creator alone will own Core, UI, adapters, source verification and narrow physical consumer helper. OrdaX Desktop must reuse the same Core. The OS alone owns authoritative boot/media contracts, OS artifact producer, release signing and physical promotion. No second image builder, artifact catalog, updater, signature root, 17-source inventory or write-consent mechanism may be added.
 
-See [AGENTS.md](AGENTS.md), [migration execution ledger](docs/MIGRATION.md), [architecture](docs/ARCHITECTURE.md), [provenance](docs/PROVENANCE.md), and the open [OS PR #2000](https://github.com/ordaxsystems/ordax-os/pull/2000).
+See [AGENTS.md](AGENTS.md), [migration execution ledger](docs/MIGRATION.md), [architecture](docs/ARCHITECTURE.md), [provenance](docs/PROVENANCE.md), and the merged [OS PR #2000](https://github.com/ordaxsystems/ordax-os/pull/2000).
 
 **Safety:** never operate on a physical USB/SSD/HDD without separate explicit authorization for that exact target and completed publisher/consumer gates. CI uses disposable files only.
