@@ -11,6 +11,7 @@ on:
       - host/**
       - appchannel/**
       - componentchannel/**
+      - proof/**
       - physicalchannel/**
       - internal/**
       - update/**
@@ -54,6 +55,11 @@ jobs:
           test -f core/portable_sources.go
           test -f cmd/ordax-creator-app/main_windows.go
           test ! -e source-import
+          # OS alone owns disposable FAT32/ext4/ESP/QEMU media proof producers.
+          # Componentchannel packaging remains Creator-owned and is intentionally kept.
+          test ! -e proof
+          test -f componentchannel/package_candidate.py
+          test -f componentchannel/test_package_candidate.py
           test ! -e authorize_physical_write.py
           test ! -e physical_promotion.py
           if grep -R -l 'github.com/ordaxsystems/ordax-os/tools/creator' --include='*.go' ./; then
