@@ -70,3 +70,9 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 
 - Existing OS workflow `Creator Development Update Channel` run `40048588473` successfully reuploaded the `creator-dev` prerelease when #2202 altered an OS publisher-only PS1 file. Verified asset creation approximately 2026-10-24 01:12Z. **Not** a signed Stable release, physical authorization or new Creator code version; this highlighted a wrong trigger rooted in the old duplicated source tree.
 - OS #2203 merged as `main@7c62fc810efce4d46737cdf24c4cd1df87683af4`, exact PR-head Foundation 40048898395 PASS. Legacy OS `creator-dev` publisher now manual-main-only, with existing URL/assets retained. This is an interim safety gate until the source and release workflow transition to independent `ordax-creator` and separate publisher credentials.
+
+## 2026-10-23 Creator development channel exact-source CI merged
+
+- `ordax-os#2204` merged at `main@45635425b946780e52f113e832c156e8ccd183f7`. Exact PR head `e9edc6e77595752f234398ea0076ede96b3e8a21`, native Windows dev candidate [40051646441](https://github.com/ordaxsystems/ordax-os/actions/runs/40051646441) PASS (**publish job skipped**), Foundation [40051646431](https://github.com/ordaxsystems/ordax-os/actions/runs/40051646431) PASS.
+- Exact source pin remains `ordax-creator@8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9`, tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`. Development manifest V1 `source_commit` now identifies this implementation owner revision, not the OS publisher revision; review-only provenance preserves both source owners. OS retains public rolling release publication authority with manual-main-only write permission.
+- Developer release assets were **not** reuploaded by the PR. Publication and physical signing remain separate and unauthorized by source checkout alone.
