@@ -11,6 +11,9 @@ Standalone source of **OrdaX Creator**, using the verified-media preparation Cor
 - Safe Windows cross-build: `CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -o OrdaX-Creator-App.exe ./cmd/ordax-creator-app`. Default build leaves the physical publisher trust binding **UNRESOLVED**, excludes tagged RAW backend and cannot enable physical apply.
 - The Windows development ZIP is **unsigned, non-destructive and review-only**. It contains no elevated physical writer; its CI receipt records identical repeated binaries, SHA-256 and provenance. It is neither a verified public signed release nor proof that hardware writes are authorized.
 
+
+Disposable OS media/ESP/QEMU proof producers live only in [`ordax-os/tools/creator/proof/`](https://github.com/ordaxsystems/ordax-os/tree/main/tools/creator/proof); they are not part of the standalone Creator source. The Creator-owned `componentchannel` packager remains here because the OS component candidate workflow consumes it from the pinned independent checkout.
+
 ## Single-owner boundaries
 
 Creator alone will own Core, UI, adapters, source verification and narrow physical consumer helper. OrdaX Desktop must reuse the same Core. The OS alone owns authoritative boot/media contracts, OS artifact producer, release signing and physical promotion. No second image builder, artifact catalog, updater, signature root, 17-source inventory or write-consent mechanism may be added.
