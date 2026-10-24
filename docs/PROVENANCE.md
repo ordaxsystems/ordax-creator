@@ -55,3 +55,8 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 - `ordax-os#2200` merged as OS `main@e01f4a92d43278fa66ebc68847469dfbdbc47c11`. Exact PR head `4151d23b9b18ce619d0f532d8cb65f83a061b42e` passed all four required CI workflows: Windows Toolkit 40041985452, Creator Candidate 40041985411, Native Release Pipeline 40041985404, Foundation 40041985438.
 - Toolkit Creator implementation code is now sourced from pinned `ordax-creator@8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` (Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`), while the OS remains source authority for the release-signing Go module, trust ceremony, system.tar and physical authorization. Both separate source identities appear in CI provenance.
 - Common exact-source action now normalizes CRLF when used by native Windows Git Bash, with repository and SHA/tree validation preserved. No Windows code-signing certificate or public physical write permission was granted.
+
+## 2026-10-23 Creator Authenticode test source migrated
+
+- `ordax-os#2201` merged to OS `main@0d2011e6f704ba7ebdfaba5435cf77adf378e175`; exact PR-head CI Windows 40043640272 PASS and Foundation 40043640248 PASS.
+- Windows unsigned GUI/launcher source is pinned to independent Creator commit `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and Git tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`. OS retains Authenticode/Ed25519 publication contracts, verification/finalizer scripts, publisher Go tools, trust keys and physical authorization; no public release was made.
