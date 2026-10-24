@@ -87,3 +87,8 @@ Creator module is merged to main at d1d32e4858ab7e2f3629fba2ac4dde5e1e1e97ef. OS
 
 - OS #2206 merged as main `01460fd5008d231da204bbfce99d152827d05b94`, exact-head component workflow `40053662944` PASS and Foundation `40053662824` PASS. The unsigned component inspection and packaging code now use pinned independent Creator commit `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`.
 - OS retains signed channel manifest /1 authority and OS source commit; actual Creator implementation provenance is separate in the non-published CI bundle. No Ed25519 signing, physical media authorization or public release was performed.
+
+## 2026-10-23 GUI UX Baseline external source validated
+
+- OS #2207 merged at `main@ca8090b784b10f063fb8c8a9f11d7f0944e67aab`; exact-head Creator UX 40054209293 and Foundation 40054209278 PASS. Visual Go source and cross builds use the existing pinned independent Creator commit `8adf641fb2cd9a3ac8351f23f912ce29ee2b70c9` and tree `312d18bb8e5cb97a216a54697724bbc8893d33d0`. OS UX/owner publication contracts unchanged.
+- The same single-paint tests run against external source in Creator CI, while offline OS Foundation temporarily reads the tracked old source until final C6 retirement. No public release, key use, signing or physical apply.
