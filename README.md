@@ -21,3 +21,23 @@ Creator alone will own Core, UI, adapters, source verification and narrow physic
 See [AGENTS.md](AGENTS.md), [migration execution ledger](docs/MIGRATION.md), [architecture](docs/ARCHITECTURE.md), [provenance](docs/PROVENANCE.md), and the merged [OS PR #2000](https://github.com/ordaxsystems/ordax-os/pull/2000).
 
 **Safety:** never operate on a physical USB/SSD/HDD without separate explicit authorization for that exact target and completed publisher/consumer gates. CI uses disposable files only.
+
+## Versionamento e builds de desenvolvimento
+
+`version.json` é a **única fonte** da versão de produto do Creator. A versão
+SemVer muda quando uma revisão do produto é promovida (por exemplo, de
+`0.6.2-dev` para `0.6.3-dev`); builds de OS ou execuções repetidas do CI **não**
+aumentam automaticamente o SemVer. Cada build tem também o commit exato do
+Creator e o commit de origem do OS no manifesto de proveniência. A interface
+mostra um identificador curto do commit ao lado da versão para distinguir
+builds da mesma versão.
+
+Todos os workflows de candidato e validação nativa incluem `version.json` nos
+filtros de disparo: uma mudança na versão não pode passar sem reexecutar os
+testes. O OS consome um único commit/tree pinado deste repositório no contrato
+`docs/contracts/native-release-assembly.json`; a nova versão **não entra nos
+pacotes USB do OS** enquanto esse pin não for atualizado e testado.
+
+O catálogo público de downloads pertence ao publicador oficial do OS, não a
+este arquivo. Uma versão Dev ou artefato de Actions não autoriza publicar uma
+release Stable no site.

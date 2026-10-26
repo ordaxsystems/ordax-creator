@@ -14,6 +14,7 @@ on:
       - physicalchannel/**
       - internal/**
       - go.mod
+      - version.json
   pull_request:
     paths:
       - .github/workflows/creator-windows-candidate.yml
@@ -25,6 +26,7 @@ on:
       - physicalchannel/**
       - internal/**
       - go.mod
+      - version.json
 
 permissions:
   contents: read
