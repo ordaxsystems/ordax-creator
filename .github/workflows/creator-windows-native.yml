@@ -16,6 +16,7 @@ on:
       - internal/**
       - update/**
       - go.mod
+      - version.json
   pull_request:
     paths:
       - .github/workflows/creator-windows-native.yml
@@ -29,6 +30,7 @@ on:
       - internal/**
       - update/**
       - go.mod
+      - version.json
 
 permissions:
   contents: read
