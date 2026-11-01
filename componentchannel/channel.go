@@ -117,7 +117,8 @@ func decodeStrict(data []byte, max int, target any) error {
 
 func validateBundleURL(raw string) error {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Opaque != "" || parsed.EscapedPath() != parsed.Path {
 		return errors.New("component bundle URL must be canonical HTTPS github.com URL")
 	}
 	if parsed.Path != releasePathPrefix+bundleName {
@@ -494,14 +495,19 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 	installed := Installed{Version: manifest.Version, SourceCommit: manifest.SourceCommit, ReleaseSequence: manifest.ReleaseSequence, Directory: finalDir, Manifest: manifest}
 	verifyBytes, err := fetchBytes(client, envelopeURL+separator+"ordax_cache_verify="+fmt.Sprint(time.Now().UnixNano()), maxEnvelopeBytes)
 	if err != nil {
-		return installed, changed, nil
+		return Installed{}, false, fmt.Errorf("confirm signed Creator component envelope before cache activation: %w", err)
 	}
+	// The second independent read must name the exact same signed artifact
+	// before a newly installed slot may be exposed to the caller.
 	if !bytes.Equal(firstBytes, verifyBytes) {
-		return installed, changed, nil
+		return Installed{}, false, errors.New("signed Creator component envelope changed while preparing cached update")
 	}
 	verifyManifest, err := VerifyEnvelope(verifyBytes, trustBytes, expectedTrustSHA256)
-	if err != nil || verifyManifest.SourceCommit != manifest.SourceCommit || verifyManifest.ReleaseSequence != manifest.ReleaseSequence {
-		return installed, changed, nil
+	if err != nil {
+		return Installed{}, false, fmt.Errorf("verify signed Creator component envelope before cache activation: %w", err)
+	}
+	if verifyManifest.SourceCommit != manifest.SourceCommit || verifyManifest.ReleaseSequence != manifest.ReleaseSequence {
+		return Installed{}, false, errors.New("signed Creator component identity changed while preparing cached update")
 	}
 	if err := checkRollback(actualRoot, verifyManifest, trustBytes, expectedTrustSHA256); err != nil {
 		return Installed{}, false, err
@@ -510,7 +516,7 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 		return Installed{}, false, err
 	}
 	if err := atomicfile.Replace(filepath.Join(actualRoot, currentEnvelopeName), verifyBytes); err != nil {
-		return installed, changed, nil
+		return Installed{}, false, fmt.Errorf("activate verified Creator component cache: %w", err)
 	}
 	installed.Manifest = verifyManifest
 	return installed, changed, nil
