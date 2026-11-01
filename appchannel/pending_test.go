@@ -229,3 +229,41 @@ func TestOfflineAppRejectsOversizedCurrentPreviousAndPendingEnvelopes(t *testing
 		})
 	}
 }
+
+func TestAcquirePendingRejectsReboundSignedReleaseWithSameSourceCommit(t *testing.T) {
+	for _, mode := range []string{"identical", "same-sequence-different-artifact", "same-source-higher-sequence"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			trust, private, trustSHA := testTrust(t)
+			body := []byte("installed-signed-app")
+			baseline := validManifest(body, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 10)
+			installSignedBaseline(t, root, body, baseline, signedEnvelope(t, baseline, private))
+			candidate := baseline
+			switch mode {
+			case "same-sequence-different-artifact":
+				candidate.Artifact.SHA256 = strings.Repeat("b", 64)
+			case "same-source-higher-sequence":
+				candidate.ReleaseSequence++
+			}
+			client := &http.Client{Transport: staticTransport{
+				envelope: signedEnvelope(t, candidate, private),
+				artifact: body,
+			}}
+			installed, pending, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA)
+			if mode == "identical" {
+				if err != nil || pending || installed.SourceCommit != baseline.SourceCommit {
+					t.Fatalf("unchanged signed release must reuse current: pending=%t installed=%+v err=%v", pending, installed, err)
+				}
+			} else if err == nil || pending || !strings.Contains(err.Error(), "source commit") {
+				t.Fatalf("rebound signed App source accepted: pending=%t installed=%+v err=%v", pending, installed, err)
+			}
+			current, currentErr := Current(root, trust, trustSHA)
+			if currentErr != nil || current.Manifest != baseline {
+				t.Fatalf("existing verified App identity was changed: current=%+v err=%v", current, currentErr)
+			}
+			if _, statErr := os.Stat(filepath.Join(root, pendingEnvelopeName)); !os.IsNotExist(statErr) {
+				t.Fatalf("rebound source left pending activation: %v", statErr)
+			}
+		})
+	}
+}
