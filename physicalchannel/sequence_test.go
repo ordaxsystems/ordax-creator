@@ -405,3 +405,16 @@ func TestCurrentRejectsSignedPortableV4ProvenanceIdentityMismatch(t *testing.T) 
 		})
 	}
 }
+
+func TestPhysicalAuthorizationRejectsOversizedSignedFileBeforeParsing(t *testing.T) {
+	root := t.TempDir()
+	candidate := sequencedCandidate(t, root, "7777777777777777777777777777777777777777", 7)
+	path := filepath.Join(candidate.Directory, "physical-write-authorization.json")
+	if err := os.Truncate(path, 64<<10+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPortableAuthorizationBinding(candidate, physicalProvenance{}); err == nil ||
+		!strings.Contains(err.Error(), "outside allowed size") {
+		t.Fatalf("oversized physical authorization should be rejected before parsing: %v", err)
+	}
+}
