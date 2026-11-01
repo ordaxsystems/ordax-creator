@@ -299,3 +299,101 @@ func TestPhysicalProgressTrackerProtectsFailedElevatedExitFromPrematureCompletio
 		t.Fatalf("terminal snapshot changed UI before process exit: %+v", tracker)
 	}
 }
+
+
+func TestPortableProgressPresentationTracksRealWriterStagesAndBytes(t *testing.T) {
+	for _, tc := range []struct {
+		phase string
+		done int64
+		total int64
+		wantPercent int
+		wantStage int
+	}{
+		{"starting-portable", 0, 0, 2, 1},
+		{"partitioning-portable", 0, 1, 7, 2},
+		{"partitioning-portable", 1, 1, 20, 2},
+		{"formatting-portable", 0, 0, 22, 3},
+		{"materializing-portable", 0, 20 << 20, 27, 4},
+		{"materializing-portable", 12 << 20, 20 << 20, 49, 4},
+		{"materializing-portable", 20 << 20, 20 << 20, 65, 4},
+		{"flushing-portable", 0, 0, 68, 5},
+		{"verifying-portable", 0, 20 << 20, 70, 6},
+		{"verifying-portable", 12 << 20, 20 << 20, 83, 6},
+		{"verifying-portable", 20 << 20, 20 << 20, 93, 6},
+		{"checking-layout-portable", 0, 0, 95, 7},
+		{"complete-portable", 1, 1, 100, 8},
+	} {
+		doc := physicalProgressDocument{
+			Schema: physicalProgressSchema, Phase: tc.phase,
+			CompletedBytes: tc.done, TotalBytes: tc.total,
+		}
+		status, _, percent, stage, ok := physicalProgressPresentationWithStage(doc)
+		if !ok || status == "" || percent != tc.wantPercent || stage != tc.wantStage {
+			t.Fatalf("portable phase %s (%d/%d) returned status=%q progress=%d stage=%d recognized=%t; want %d stage=%d",
+				tc.phase, tc.done, tc.total, status, percent, stage, ok, tc.wantPercent, tc.wantStage)
+		}
+	}
+	if _, _, _, _, ok := physicalProgressPresentationWithStage(physicalProgressDocument{Phase: "unsupported-portable"}); ok {
+		t.Fatal("unrecognized Portable phase must be ignored")
+	}
+}
+
+func TestPortableProgressTrackerPreservesOrderAndDefersTerminalSuccess(t *testing.T) {
+	var tracker physicalProgressTracker
+	for _, tc := range []struct {
+		phase string
+		done int64
+		total int64
+		accepted bool
+	}{
+		{"starting-portable", 0, 0, true},
+		{"partitioning-portable", 0, 1, true},
+		{"partitioning-portable", 1, 1, true},
+		{"formatting-portable", 0, 0, true},
+		{"materializing-portable", 0, 20 << 20, true},
+		{"materializing-portable", 12 << 20, 20 << 20, true},
+		{"materializing-portable", 4 << 20, 20 << 20, false},
+		{"materializing-portable", 12 << 20, 21 << 20, false},
+		{"materializing-portable", 20 << 20, 20 << 20, true},
+		{"flushing-portable", 0, 0, true},
+		{"materializing-portable", 20 << 20, 20 << 20, false},
+		{"verifying-portable", 0, 20 << 20, true},
+		{"verifying-portable", 12 << 20, 20 << 20, true},
+		{"verifying-portable", 20 << 20, 20 << 20, true},
+		{"checking-layout-portable", 0, 0, true},
+		{"verifying-portable", 20 << 20, 20 << 20, false},
+		{"complete-portable", 1, 1, false},
+	} {
+		doc := physicalProgressDocument{
+			Schema: physicalProgressSchema, Phase: tc.phase,
+			CompletedBytes: tc.done, TotalBytes: tc.total,
+		}
+		_, _, percent, ok := tracker.accept(doc)
+		if ok != tc.accept {
+			t.Fatalf("phase %q (%d/%d) accepted=%t, want %t", tc.phase, tc.done, tc.total, ok, tc.accept)
+		}
+		if ok && (percent < 0 || percent > 95) {
+			t.Fatalf("Portable helper telemetry falsely declared completion at %d%%", percent)
+		}
+	}
+	if tracker.lastStage != 7 || tracker.lastPercent != 95 {
+		t.Fatalf("terminal helper snapshot changed result before confirmed exit: %+v", tracker)
+	}
+}
+
+func TestPortableProgressStatusAndByteLabelsAreLocalized(t *testing.T) {
+	previous := currentCreatorLocale()
+	t.Cleanup(func() { setCreatorLocale(string(previous)) })
+	doc := physicalProgressDocument{
+		Schema: physicalProgressSchema, Phase: "materializing-portable",
+		CompletedBytes: 12 << 20, TotalBytes: 20 << 20,
+	}
+	for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+		setCreatorLocale(string(locale))
+		status, hint, percent, ok := physicalProgressPresentation(doc)
+		if !ok || percent != 49 || !strings.Contains(status, "17") ||
+			!strings.Contains(hint, "12.0") || !strings.Contains(hint, "20.0") {
+			t.Fatalf("Portable progress locale=%s status=%q hint=%q percent=%d ok=%t", locale, status, hint, percent, ok)
+		}
+	}
+}
