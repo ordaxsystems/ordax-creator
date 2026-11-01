@@ -117,6 +117,7 @@ const (
 	msgUpdateFailedBody          creatorMessageID = "creator.update.failed.body"
 	msgUpdateCurrentBody         creatorMessageID = "creator.update.current.body"
 	msgUpdateBundleManualBody    creatorMessageID = "creator.update.bundleManual.body"
+	msgUpdateVersionComparison    creatorMessageID = "creator.update.versionComparison"
 	msgPortablePlanStatus        creatorMessageID = "creator.write.portablePlan.status"
 	msgPortablePlanHint          creatorMessageID = "creator.write.portablePlan.hint"
 	msgPortableElevationHint     creatorMessageID = "creator.write.portableElevation.hint"
@@ -225,6 +226,7 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgUpdateFailedBody:          "Não foi possível concluir a atualização. A versão atual permanece preservada.",
 	msgUpdateCurrentBody:         "Você já está usando a versão mais recente do OrdaX Creator.",
 	msgUpdateBundleManualBody:    "Há uma nova versão no bundle oficial do OrdaX Creator. Este canal ainda não permite atualização automática dentro do app; baixe o novo OrdaX-Creator-Owner-Prototype.zip da release oficial e substitua o bundle extraído completo. Não substitua apenas o EXE da interface.",
+	msgUpdateVersionComparison:    "Instalado: {installed} ({installed_commit})\nDisponível: {available} ({available_commit})",
 	msgPortablePlanStatus:        "Validando o plano Portable…",
 	msgPortablePlanHint:          "O Creator Core está vinculando o layout e os 17 artefatos assinados ao USB selecionado.",
 	msgPortableElevationHint:     "Confirme o Controle de Conta de Usuário. O helper elevado revalidará o USB, os 17 sources e o plano antes da primeira escrita.",
@@ -333,6 +335,7 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgUpdateFailedBody:          "The update could not be completed. The current version remains preserved.",
 	msgUpdateCurrentBody:         "You are already using the latest OrdaX Creator version.",
 	msgUpdateBundleManualBody:    "A new version is available in the official OrdaX Creator bundle. This channel does not yet allow automatic in-app updates; download the new OrdaX-Creator-Owner-Prototype.zip from the official release and replace the complete extracted bundle. Do not replace only the UI executable.",
+	msgUpdateVersionComparison:    "Installed: {installed} ({installed_commit})\nAvailable: {available} ({available_commit})",
 	msgPortablePlanStatus:        "Validating the Portable plan…",
 	msgPortablePlanHint:          "Creator Core is binding the layout and all 17 signed artifacts to the selected USB device.",
 	msgPortableElevationHint:     "Confirm the User Account Control prompt. The elevated helper will revalidate the USB device, all 17 sources, and the plan before the first write.",

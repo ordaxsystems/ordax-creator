@@ -25,6 +25,12 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 
 All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symbolic link or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
 
+## Windows owner-bundle update presentation
+
+The independent Creator GUI's owner-prototype update check is **read-only**. It validates the OS-published owner-update manifest (channel, exact pinned release URL, version, SHA-256, source commit, declared bundle size and no automatic-install permission) and compares the source lineage before displaying availability. The historical 512 MiB manifest-size ceiling was below the OS-published full owner bundle; the validation bound is now **2 GiB**, without downloading, executing or promoting an artifact. All other checks remain unchanged.
+
+The main GUI version label always identifies the **installed** build and immutable short source commit. An update notice belongs to the dedicated button; the manual instructions show **installed and available** versions/commits side by side. The candidate never becomes the displayed installed version until a separate, legitimate external bundle replacement has occurred. The update remains manual, not a signed Stable release or physical-write authorization. Windows regression tests cover the published-size class, invalid manifests, both locales and installed-version preservation.
+
 ## Windows refresh UI interlock
 
 The Win32 GUI has one UI-thread-owned refresh-in-progress gate. From the moment a refresh starts until its newly verified snapshot is rendered, another refresh or a physical write cannot start. USB selection and the destructive action remain disabled, including on locale changes and queued native button messages. A locale change continues to show the translated searching state rather than redisplaying stale targets. Queued progress/completion events from an earlier operation cannot reenable the previous device while the new refresh is active.
