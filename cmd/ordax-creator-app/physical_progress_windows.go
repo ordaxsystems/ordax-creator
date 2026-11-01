@@ -119,6 +119,25 @@ func physicalProgressPresentationWithStage(document physicalProgressDocument) (s
 		return creatorT(msgProgressDataStatus), creatorT(msgProgressDataHint), 96, 11, true
 	case "complete":
 		return creatorT(msgProgressCompleteStatus), creatorT(msgProgressCompleteHint), 100, 12, true
+	// Portable stages use the same bounded sidecar and phase tracker, but
+	// their counters come from actual materialized/read-back artifact bytes.
+	// No 100% is trusted from the elevated helper's completion sidecar.
+	case "starting-portable":
+		return creatorT(msgProgressStartingStatus), creatorT(msgProgressStartingHint), 2, 1, true
+	case "partitioning-portable":
+		return creatorT(msgPortablePartitionStatus), creatorT(msgPortablePartitionHint), ratioPercent(7, 13), 2, true
+	case "formatting-portable":
+		return creatorT(msgPortableFormatStatus), creatorT(msgPortableFormatHint), 22, 3, true
+	case "materializing-portable":
+		return creatorT(msgPortableCopyStatus), byteProgress(msgPortableCopyBytes), ratioPercent(27, 38), 4, true
+	case "flushing-portable":
+		return creatorT(msgProgressFlushStatus), creatorT(msgProgressFlushHint), 68, 5, true
+	case "verifying-portable":
+		return creatorT(msgProgressVerifyingStatus), byteProgress(msgProgressVerifyingBytes), ratioPercent(70, 23), 6, true
+	case "checking-layout-portable":
+		return creatorT(msgPortableLayoutStatus), creatorT(msgPortableLayoutHint), 95, 7, true
+	case "complete-portable":
+		return creatorT(msgProgressCompleteStatus), creatorT(msgProgressCompleteHint), 100, 8, true
 	default:
 		return "", "", 0, 0, false
 	}
@@ -140,7 +159,7 @@ func (tracker *physicalProgressTracker) accept(document physicalProgressDocument
 		return "", "", 0, false
 	}
 	status, hint, percent, stage, recognized := physicalProgressPresentationWithStage(document)
-	if !recognized || document.Phase == "complete" {
+	if !recognized || document.Phase == "complete" || document.Phase == "complete-portable" {
 		// The child can still fail after writing its final sidecar entry.
 		// Do not show 100% or "complete" before its verified zero exit.
 		return "", "", 0, false
