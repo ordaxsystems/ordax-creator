@@ -79,20 +79,6 @@ func resolveApp() (appResolution, error) {
 	return appResolution{Installed: current, Pending: false, Trust: trust, TrustSHA: trustSHA}, nil
 }
 
-func healthCheck(installed appchannel.Installed) error {
-	command := exec.Command(installed.Executable, "--launcher-healthcheck")
-	command.Dir = installed.Directory
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("Creator app startup health-check failed: %w", err)
-	}
-	if !strings.Contains(string(output), "ORDAX_CREATOR_APP_HEALTH=PASS") {
-		return fmt.Errorf("Creator app startup health-check did not return the required proof marker")
-	}
-	return nil
-}
-
 func start(installed appchannel.Installed) error {
 	command := exec.Command(installed.Executable, os.Args[1:]...)
 	command.Dir = installed.Directory
@@ -106,9 +92,36 @@ func start(installed appchannel.Installed) error {
 	return nil
 }
 
+// An already verified current app may fail to start after a successful
+// health check (for example, because a resource became unavailable). Only the
+// separately verified previous signed app may be used as a fallback. The
+// signed current pointer is never lowered, so the authenticated release
+// sequence remains the next update's rollback baseline.
+func startWithPrevious(installed appchannel.Installed, readPrevious func() (appchannel.Installed, error), launchApp func(appchannel.Installed) error) error {
+	if err := launchApp(installed); err != nil {
+		previous, previousErr := readPrevious()
+		if previousErr != nil {
+			return fmt.Errorf("verified Creator app could not start (%w) and previous signed app is unavailable (%v)", err, previousErr)
+		}
+		if previous.SourceCommit == installed.SourceCommit {
+			return fmt.Errorf("verified Creator app could not start and previous signed app has the same source commit: %w", err)
+		}
+		if fallbackErr := launchApp(previous); fallbackErr != nil {
+			return fmt.Errorf("verified Creator app could not start (%v) and previous signed app also failed: %w", err, fallbackErr)
+		}
+	}
+	return nil
+}
+
+func startVerifiedWithFallback(installed appchannel.Installed, trust []byte, trustSHA string) error {
+	return startWithPrevious(installed, func() (appchannel.Installed, error) {
+		return appchannel.Previous("", trust, trustSHA)
+	}, start)
+}
+
 func launch(resolution appResolution) error {
 	if !resolution.Pending {
-		return start(resolution.Installed)
+		return startVerifiedWithFallback(resolution.Installed, resolution.Trust, resolution.TrustSHA)
 	}
 	if err := healthCheck(resolution.Installed); err != nil {
 		_ = appchannel.DiscardPending("")
@@ -116,7 +129,7 @@ func launch(resolution appResolution) error {
 		if fallbackErr != nil {
 			return fmt.Errorf("new signed Creator app was rejected before activation (%v); no last-known-good app is available (%v)", err, fallbackErr)
 		}
-		return start(fallback)
+		return startVerifiedWithFallback(fallback, resolution.Trust, resolution.TrustSHA)
 	}
 	promoted, err := appchannel.PromotePending("", resolution.Installed.Manifest, resolution.Trust, resolution.TrustSHA)
 	if err != nil {
@@ -125,9 +138,9 @@ func launch(resolution appResolution) error {
 		if fallbackErr != nil {
 			return fmt.Errorf("health-checked Creator app could not be promoted (%v); no last-known-good app is available (%v)", err, fallbackErr)
 		}
-		return start(fallback)
+		return startVerifiedWithFallback(fallback, resolution.Trust, resolution.TrustSHA)
 	}
-	return start(promoted)
+	return startVerifiedWithFallback(promoted, resolution.Trust, resolution.TrustSHA)
 }
 
 func main() {
