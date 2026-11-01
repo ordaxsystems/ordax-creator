@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const (
@@ -80,7 +81,7 @@ type physicalAuthorizationV3 struct {
 // "looks like a SHA-256" after offline cache reuse or an online refresh.
 func verifyPortableAuthorizationBinding(installed Installed, p physicalProvenance) error {
 	path := filepath.Join(installed.Directory, "physical-write-authorization.json")
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadBoundedRegular(path, 64<<10)
 	if err != nil {
 		return fmt.Errorf("read signed physical authorization: %w", err)
 	}
@@ -133,14 +134,7 @@ func ReleaseSequence(installed Installed) (int64, error) {
 		return 0, err
 	}
 	path := filepath.Join(installed.Directory, "provenance.json")
-	info, err := os.Lstat(path)
-	if err != nil {
-		return 0, err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return 0, errors.New("physical provenance is not a regular non-symlink file")
-	}
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadBoundedRegular(path, maxProvenanceBytes)
 	if err != nil {
 		return 0, err
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const (
@@ -21,14 +22,7 @@ const (
 
 func readVerifiedEnvelope(root, name string, trustBytes []byte, expectedTrustSHA256 string) (Manifest, []byte, error) {
 	path := filepath.Join(root, name)
-	info, err := os.Lstat(path)
-	if err != nil {
-		return Manifest{}, nil, err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return Manifest{}, nil, fmt.Errorf("cached Creator app envelope %s is unsafe", name)
-	}
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadBoundedRegular(path, maxEnvelopeBytes)
 	if err != nil {
 		return Manifest{}, nil, err
 	}

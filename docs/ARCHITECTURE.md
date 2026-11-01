@@ -25,6 +25,10 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 
 All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symbolic link or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
 
+## Offline signed-evidence reads
+
+The App, Component and Physical channels use `internal/safefile` for a single bounded read policy over cached signed envelopes, App pending/previous envelopes, physical provenance and physical authorization. The local file must be a non-symlink regular file with an expected size before opening; after opening it must still be the same file with an allowed size, and only a bounded read is performed. Each caller retains its existing signed-envelope, SHA-256, provenance, rollback and device-specific authorization checks. This closes the gap between bounded network reads and previously unbounded offline `os.ReadFile` operations. The development updater retains its separate bounded `current.json` logic until any further consolidation is justified by tests.
+
 ## Evidence and release gates
 
 - Core/Go vet, immutable read-only contract integration, real Win32 UI smoke, unsafe-target negative tests, repeatable unsigned ZIP builds, and synthetic/disposable file tests are non-destructive engineering evidence.
