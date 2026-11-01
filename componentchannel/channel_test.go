@@ -337,3 +337,47 @@ func TestOfflineComponentRejectsOversizedSignedEnvelopeBeforeParsing(t *testing.
 		t.Fatalf("oversized Component envelope was accepted: %v", err)
 	}
 }
+
+func TestSignedComponentRejectsSameCommitManifestRebinding(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	baseline := installManifest(t, root, validManifest(), []byte("unchanged-signed-component"))
+	pointer := signedEnvelope(t, baseline, private)
+	if err := os.WriteFile(filepath.Join(root, currentEnvelopeName), pointer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRollback(root, baseline, trust, trustSHA); err != nil {
+		t.Fatalf("identical component identity rejected: %v", err)
+	}
+	for _, mode := range []string{"same-sequence-different-bundle", "same-source-higher-sequence"} {
+		t.Run(mode, func(t *testing.T) {
+			candidate := baseline
+			switch mode {
+			case "same-sequence-different-bundle":
+				candidate.Bundle.SHA256 = strings.Repeat("c", 64)
+			case "same-source-higher-sequence":
+				candidate.ReleaseSequence++
+			}
+			if err := checkRollback(root, candidate, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "source commit") {
+				t.Fatalf("rebound component passed rollback gate: %v", err)
+			}
+			// The online path must reject the signed rebind without
+			// replacing the already verified offline activation pointer.
+			envelope := signedEnvelope(t, candidate, private)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(envelope)
+			}))
+			defer server.Close()
+			if installed, changed, err := AcquireCached(server.Client(), root, server.URL, trust, trustSHA); err == nil || changed || installed.SourceCommit != "" {
+				t.Fatalf("online component rebind activated: changed=%t installed=%+v err=%v", changed, installed, err)
+			}
+			data, err := os.ReadFile(filepath.Join(root, currentEnvelopeName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(data, pointer) {
+				t.Fatal("signed component pointer was changed by a rebinding attempt")
+			}
+		})
+	}
+}
