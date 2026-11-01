@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const (
@@ -80,7 +81,7 @@ type physicalAuthorizationV3 struct {
 // "looks like a SHA-256" after offline cache reuse or an online refresh.
 func verifyPortableAuthorizationBinding(installed Installed, p physicalProvenance) error {
 	path := filepath.Join(installed.Directory, "physical-write-authorization.json")
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadBoundedRegular(path, 64<<10)
 	if err != nil {
 		return fmt.Errorf("read signed physical authorization: %w", err)
 	}
