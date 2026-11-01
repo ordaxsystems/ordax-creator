@@ -1,12 +1,15 @@
 package componentchannel
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"errors"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -210,5 +213,89 @@ func TestSignedComponentRejectsSymlinkedVersionsRootOfflineAndOnline(t *testing.
 	defer server.Close()
 	if _, _, err := AcquireCached(server.Client(), root, server.URL, trust, trustSHA); err == nil {
 		t.Fatal("online signed component cache followed redirected versions root")
+	}
+}
+
+
+type signedComponentTestTransport func(*http.Request) (*http.Response, error)
+
+func (fn signedComponentTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+// The UI uses a separate, strictly verified Current fallback on network
+// failures. An unconfirmed signed component may never be reported as active.
+func TestSignedComponentCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
+	for _, mode := range []string{
+		"stable", "network-failure", "http-failure",
+		"changed-signed-artifact", "invalid-second-signature", "pointer-write-failure",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			trust, private, trustSHA := testTrust(t)
+			manifest := installManifest(t, root, validManifest(), []byte("valid-signed-inspection-component"))
+			first := signedEnvelope(t, manifest, private)
+			second := first
+			switch mode {
+			case "changed-signed-artifact":
+				rebound := manifest
+				rebound.File.SHA256 = strings.Repeat("a", 64)
+				second = signedEnvelope(t, rebound, private)
+			case "invalid-second-signature":
+				var altered Envelope
+				if err := json.Unmarshal(first, &altered); err != nil {
+					t.Fatal(err)
+				}
+				altered.Signature[0] ^= 0xff
+				var err error
+				second, err = json.Marshal(altered)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			requests := 0
+			client := &http.Client{Transport: signedComponentTestTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				if req.URL.Host != "github.com" || req.URL.Path != "/ordaxsystems/ordax-os/releases/download/creator-components/creator-component-envelope.json" || requests > 2 {
+					return nil, errors.New("unexpected signed component test URL or third request")
+				}
+				if requests == 2 {
+					switch mode {
+					case "network-failure":
+						return nil, errors.New("synthetic signed component network failure")
+					case "http-failure":
+						return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header), Request: req}, nil
+					case "pointer-write-failure":
+						if err := os.Mkdir(filepath.Join(root, currentEnvelopeName), 0o700); err != nil {
+							return nil, err
+						}
+					}
+				}
+				data := first
+				if requests == 2 {
+					data = second
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(data)), Header: make(http.Header), Request: req}, nil
+			})}
+			got, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA)
+			if requests != 2 {
+				t.Fatalf("expected two independent envelope fetches, got %d, err=%v", requests, err)
+			}
+			if mode == "stable" {
+				if err != nil || changed || got.SourceCommit != manifest.SourceCommit {
+					t.Fatalf("stable signed component changed=%t installed=%+v err=%v", changed, got, err)
+				}
+				if _, err := Current(root, trust, trustSHA); err != nil {
+					t.Fatalf("valid component cache pointer did not activate: %v", err)
+				}
+			} else {
+				if err == nil || changed || got.SourceCommit != "" {
+					t.Fatalf("unconfirmed signed component was returned as success: changed=%t installed=%+v err=%v", changed, got, err)
+				}
+				if _, err := Current(root, trust, trustSHA); err == nil {
+					t.Fatal("unconfirmed signed component became offline current")
+				}
+			}
+		})
 	}
 }
