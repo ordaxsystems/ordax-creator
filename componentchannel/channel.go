@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ordaxsystems/ordax-creator/internal/archivebounds"
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 	"github.com/ordaxsystems/ordax-creator/internal/releaseidentity"
@@ -338,8 +339,11 @@ func extractBundle(zipPath, destination string, manifest Manifest) error {
 		return errors.New("Creator component archive must contain exactly one file")
 	}
 	item := archive.File[0]
-	if item.Name != expectedFile || item.FileInfo().IsDir() || item.FileInfo().Mode()&os.ModeSymlink != 0 || item.UncompressedSize64 > uint64(maxComponentBytes) {
+	if item.Name != expectedFile || item.FileInfo().IsDir() || item.FileInfo().Mode()&os.ModeSymlink != 0 {
 		return errors.New("Creator component archive contains an unexpected or unsafe entry")
+	}
+	if _, err := archivebounds.Add(0, item.UncompressedSize64, maxComponentBytes); err != nil {
+		return fmt.Errorf("Creator component ZIP entry: %w", err)
 	}
 	reader, err := item.Open()
 	if err != nil {
@@ -351,7 +355,7 @@ func extractBundle(zipPath, destination string, manifest Manifest) error {
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(writer, io.LimitReader(reader, maxComponentBytes+1))
+	_, copyErr := archivebounds.CopyExact(writer, reader, item.UncompressedSize64)
 	closeErr := writer.Close()
 	if copyErr != nil {
 		return copyErr
