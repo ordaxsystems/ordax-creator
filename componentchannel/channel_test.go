@@ -321,3 +321,19 @@ func TestSignedComponentRejectsNoncanonicalReleaseAssetURL(t *testing.T) {
 		t.Fatalf("canonical signed asset URL rejected: %v", err)
 	}
 }
+
+func TestOfflineComponentRejectsOversizedSignedEnvelopeBeforeParsing(t *testing.T) {
+	root := t.TempDir()
+	trust, _, trustSHA := testTrust(t)
+	path := filepath.Join(root, currentEnvelopeName)
+	if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxEnvelopeBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root, trust, trustSHA); err == nil ||
+		!strings.Contains(err.Error(), "outside allowed size") {
+		t.Fatalf("oversized Component envelope was accepted: %v", err)
+	}
+}
