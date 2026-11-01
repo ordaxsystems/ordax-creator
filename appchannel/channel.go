@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
+	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 )
 
 const (
@@ -222,6 +223,9 @@ func verifyRegularFile(path string, binding Artifact) error {
 }
 
 func installedFrom(root string, manifest Manifest) (Installed, error) {
+	if _, err := cachepath.Versions(root); err != nil {
+		return Installed{}, err
+	}
 	directory := filepath.Join(root, "versions", manifest.SourceCommit)
 	info, err := os.Lstat(directory)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
@@ -384,8 +388,8 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 		return Installed{}, false, err
 	}
 
-	versions := filepath.Join(actualRoot, "versions")
-	if err := os.MkdirAll(versions, 0o755); err != nil {
+	versions, err := cachepath.EnsureVersions(actualRoot)
+	if err != nil {
 		return Installed{}, false, err
 	}
 	finalDir := filepath.Join(versions, manifest.SourceCommit)
