@@ -22,15 +22,15 @@ import (
 )
 
 const (
-	ChannelSchemaV1      = "prototype-ordax.creator-update-channel/1"
-	ChannelSchemaV2      = "prototype-ordax.creator-update-channel/2"
-	ChannelSchema        = ChannelSchemaV2
-	DevelopmentChannel   = "development"
-	DefaultManifestURL   = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json"
-	maxManifestBytes     = 256 << 10
-	maxPayloadBytes      = int64(128 << 20)
-	maxExtractedBytes    = int64(256 << 20)
-	maxArchiveFileCount  = 128
+	ChannelSchemaV1        = "prototype-ordax.creator-update-channel/1"
+	ChannelSchemaV2        = "prototype-ordax.creator-update-channel/2"
+	ChannelSchema          = ChannelSchemaV2
+	DevelopmentChannel     = "development"
+	DefaultManifestURL     = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json"
+	maxManifestBytes       = 256 << 10
+	maxPayloadBytes        = int64(128 << 20)
+	maxExtractedBytes      = int64(256 << 20)
+	maxArchiveFileCount    = 128
 	maxInstalledPointerBytes = 16 << 10
 )
 
