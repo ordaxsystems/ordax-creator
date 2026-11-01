@@ -150,11 +150,51 @@ func updateWritePercentage(status, hint string, percent int) {
 	procPostMessageW.Call(mainWindow, wmAppWriteProgress, 0, 0)
 }
 
+// physicalWriteResultCopy is the single localized presentation for both the
+// worker's terminal state and subsequent UI repaint or locale changes. Never
+// treat diagnostic metadata as a new write authorization.
+func physicalWriteResultCopy(state physicalWriteState) (status, hint string) {
+	if state.Success {
+		view := creatorExperience(creatorExperienceInput{WriteComplete: true})
+		return creatorT(msgWriteCompleteStatus) + " " + view.Title,
+			strings.TrimSpace(view.Body + " " + view.Detail)
+	}
+	view := creatorExperience(creatorExperienceInput{ErrorMessageID: msgPhysicalWriteFailedDetail, ErrorStepNumber: 4})
+	hint = strings.TrimSpace(view.Body + " " + view.Detail)
+	if state.DiagnosticPath != "" {
+		hint += " " + creatorTValues(msgWriteDiagnosticLocation, map[string]string{
+			"path": filepath.Base(state.DiagnosticPath),
+		})
+	}
+	return view.Title, hint
+}
+
+const maxPhysicalFailureDetailRunes = 3000
+
+// Show the diagnostic location and bounded error explanation on demand.
+// Do not open untrusted files, execute commands or consume the diagnostic as
+// a grant. A preserved report remains available after retry and temp cleanup.
+func physicalWriteFailureDetails(state physicalWriteState) string {
+	if state.Active || state.Error == "" {
+		return ""
+	}
+	detail := []rune(strings.TrimSpace(state.Error))
+	if len(detail) > maxPhysicalFailureDetailRunes {
+		detail = append(detail[:maxPhysicalFailureDetailRunes], '…')
+	}
+	body := string(detail)
+	if state.DiagnosticPath != "" {
+		body = creatorTValues(msgWriteDiagnosticLocation, map[string]string{
+			"path": state.DiagnosticPath,
+		}) + "\n\n" + body
+	}
+	return body
+}
+
 func completeWrite(err error) {
 	writeMu.Lock()
 	writeState.Active = false
 	if err != nil {
-		view := creatorExperience(creatorExperienceInput{ErrorMessageID: msgPhysicalWriteFailedDetail, ErrorStepNumber: 4})
 		writeState.Success = false
 		writeState.Error = err.Error()
 		writeState.DiagnosticPath = ""
@@ -162,23 +202,16 @@ func completeWrite(err error) {
 		if errors.As(err, &failure) {
 			writeState.DiagnosticPath = failure.diagnosticPath
 		}
-		writeState.Status = view.Title
-		writeState.Hint = strings.TrimSpace(view.Body + " " + view.Detail)
-		if writeState.DiagnosticPath != "" {
-			writeState.Hint += " " + creatorTValues(msgWriteDiagnosticLocation, map[string]string{"path": filepath.Base(writeState.DiagnosticPath)})
-		}
 		writeState.Determinate = false
 		writeState.Percent = 0
 	} else {
-		view := creatorExperience(creatorExperienceInput{WriteComplete: true})
 		writeState.Success = true
 		writeState.Error = ""
 		writeState.DiagnosticPath = ""
-		writeState.Status = creatorT(msgWriteCompleteStatus) + " " + view.Title
-		writeState.Hint = strings.TrimSpace(view.Body + " " + view.Detail)
 		writeState.Determinate = true
 		writeState.Percent = 100
 	}
+	writeState.Status, writeState.Hint = physicalWriteResultCopy(writeState)
 	writeMu.Unlock()
 	procPostMessageW.Call(mainWindow, wmAppWriteDone, 0, 0)
 }
@@ -209,6 +242,7 @@ func renderWriteProgress() {
 	enable(writeButton, false)
 	enable(deviceCombo, false)
 	enable(localeCombo, false)
+	enable(bootHelpButton, false)
 }
 
 func renderWriteDone() {
@@ -225,16 +259,17 @@ func renderWriteDone() {
 		return
 	}
 
-	setCreatorStatus(state.Status)
-	setCreatorHint(state.Hint)
+	status, hint := physicalWriteResultCopy(state)
+	setCreatorStatus(status)
+	setCreatorHint(hint)
 	if state.Success {
 		setProgressComplete()
 		setText(writeButton, creatorT(msgActionFinish))
+		setText(bootHelpButton, creatorT(msgActionBootHelp))
 	} else {
 		setProgressIdle()
-		if state.Error != "" {
-			setText(writeButton, creatorT(msgActionRetry))
-		}
+		setText(writeButton, creatorT(msgActionRetry))
+		setText(bootHelpButton, creatorT(msgActionFailureDetails))
 	}
 
 	stateMu.Lock()
@@ -243,11 +278,11 @@ func renderWriteDone() {
 	enable(refreshButton, !state.Success)
 	enable(localeCombo, !state.Success)
 	enable(deviceCombo, !state.Success && len(current.Targets) > 0)
-	if state.Success {
-		enable(writeButton, true)
-	} else {
-		enable(writeButton, current.PhysicalReady && len(current.Targets) > 0)
-	}
+	// A failed operation's retry only refreshes the target list; it never
+	// invokes the writer. Therefore retry stays available even if no
+	// cached candidate or connected USB is currently usable.
+	enable(writeButton, true)
+	enable(bootHelpButton, true)
 	renderUpdateUI()
 	if state.Success {
 		enable(updateButton, false)
