@@ -322,7 +322,7 @@ func verifyPortablePayloadInstalled(directory string, manifest Manifest) error {
 	}
 
 	sourceRoot := filepath.Join(directory, portablePayloadDirectory)
-	info, err = os.Lstat(sourceRoot)
+	info, err := os.Lstat(sourceRoot)
 	if err != nil {
 		return err
 	}
