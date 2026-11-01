@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
+	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 )
 
 const currentEnvelopeName = "current-envelope.json"
@@ -56,6 +57,9 @@ func Current(root string, trustBytes []byte, expectedTrustSHA256 string) (Instal
 	}
 	manifest, err := VerifyEnvelope(envelopeBytes, trustBytes, expectedTrustSHA256)
 	if err != nil {
+		return Installed{}, err
+	}
+	if _, err := cachepath.Versions(root); err != nil {
 		return Installed{}, err
 	}
 	directory := filepath.Join(root, "versions", manifest.SourceCommit)
