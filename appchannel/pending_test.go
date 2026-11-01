@@ -51,7 +51,7 @@ func TestPendingUpdateKeepsCurrentUntilPromotionAndPreservesPrevious(t *testing.
 		t.Fatalf("pending candidate replaced current before health-check: %+v", current)
 	}
 
-	promoted, err := PromotePending(root, pending.SourceCommit, trust, trustSHA)
+	promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestLastKnownGoodFallsBackToPreviousAfterCurrentCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	promoted, err := PromotePending(root, pending.SourceCommit, trust, trustSHA)
+	promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestNewerPendingCanRepairCorruptCurrentBytesWithoutForgettingSequence(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	promoted, err := PromotePending(root, pending.SourceCommit, trust, trustSHA)
+	promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestNewerPendingCanRepairCorruptCurrentBytesWithoutForgettingSequence(t *te
 	if !changed || repair.ReleaseSequence != 9 {
 		t.Fatalf("unexpected repair candidate: %+v changed=%v", repair, changed)
 	}
-	if _, err := PromotePending(root, repair.SourceCommit, trust, trustSHA); err != nil {
+	if _, err := PromotePending(root, repair.Manifest, trust, trustSHA); err != nil {
 		t.Fatal(err)
 	}
 	current, err := Current(root, trust, trustSHA)
