@@ -3,6 +3,8 @@ package physicalchannel
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,5 +65,37 @@ func TestCurrentRejectsTamperedCachedEnvelope(t *testing.T) {
 	}
 	if _, err := Current(root, trustBytes, trustSHA); err == nil || !strings.Contains(err.Error(), "signature") {
 		t.Fatalf("tampered cached envelope unexpectedly accepted: %v", err)
+	}
+}
+
+func TestPhysicalChannelRejectsRedirectedVersionsRootForCachedAndOnlineCandidate(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	candidate := sequencedCandidate(t, root, "0123456789abcdef0123456789abcdef01234567", 1)
+	cacheSignedCandidate(t, root, candidate, private)
+	if _, err := Current(root, trust, trustSHA); err != nil {
+		t.Fatalf("legitimate cached candidate rejected before symlink: %v", err)
+	}
+	versions := filepath.Join(root, "versions")
+	backing := filepath.Join(t.TempDir(), "versions")
+	if err := os.Rename(versions, backing); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(backing, versions); err != nil {
+		t.Skipf("symlinks unavailable on this host: %v", err)
+	}
+	if _, err := Current(root, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "versions cache") {
+		t.Fatalf("physical offline cache followed redirected versions root: %v", err)
+	}
+	envelope := signedEnvelope(t, validManifest(), private)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(envelope)
+	}))
+	defer server.Close()
+	if _, _, err := Acquire(server.Client(), root, server.URL, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "versions cache") {
+		t.Fatalf("physical online acquisition followed redirected versions root: %v", err)
+	}
+	if _, _, err := AcquireCached(server.Client(), root, server.URL, trust, trustSHA); err == nil {
+		t.Fatal("physical signed cache promotion accepted redirected versions root")
 	}
 }
