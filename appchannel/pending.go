@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
+	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 )
 
 const (
@@ -110,8 +111,8 @@ func checkPendingRollback(root string, candidate Manifest, trustBytes []byte, ex
 }
 
 func installCandidate(client *http.Client, root string, manifest Manifest) (Installed, bool, error) {
-	versions := filepath.Join(root, "versions")
-	if err := os.MkdirAll(versions, 0o755); err != nil {
+	versions, err := cachepath.EnsureVersions(root)
+	if err != nil {
 		return Installed{}, false, err
 	}
 	finalDir := filepath.Join(versions, manifest.SourceCommit)
