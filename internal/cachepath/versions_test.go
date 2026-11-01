@@ -63,3 +63,46 @@ func TestVersionsRejectsSymlinkAndRegularFile(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureVersionsCreatesMissingRealRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "OrdaX", "Creator", "app")
+	versions, err := EnsureVersions(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions != filepath.Join(root, "versions") {
+		t.Fatalf("wrong versions path: %q", versions)
+	}
+	if _, err := Versions(root); err != nil {
+		t.Fatalf("created cache is unreadable: %v", err)
+	}
+}
+
+func TestVersionsRejectsUnsafeCacheRootBeforeWritingChildren(t *testing.T) {
+	for _, mode := range []string{"symlink", "file"} {
+		t.Run(mode, func(t *testing.T) {
+			parent := t.TempDir()
+			external := t.TempDir()
+			root := filepath.Join(parent, "creator-cache")
+			switch mode {
+			case "symlink":
+				if err := os.Symlink(external, root); err != nil {
+					t.Skipf("symlink unavailable on this host: %v", err)
+				}
+			case "file":
+				if err := os.WriteFile(root, []byte("not a cache directory"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Versions(root); err == nil {
+				t.Fatal("offline reader followed an unsafe cache root")
+			}
+			if _, err := EnsureVersions(root); err == nil {
+				t.Fatal("installer accepted an unsafe cache root")
+			}
+			if _, err := os.Lstat(filepath.Join(external, "versions")); !os.IsNotExist(err) {
+				t.Fatalf("installer wrote through redirected cache root: %v", err)
+			}
+		})
+	}
+}
