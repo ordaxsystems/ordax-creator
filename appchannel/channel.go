@@ -425,14 +425,19 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 	}
 	verifyBytes, err := fetchBytes(client, envelopeURL+separator+"ordax_cache_verify="+fmt.Sprint(time.Now().UnixNano()), maxEnvelopeBytes)
 	if err != nil {
-		return installed, changed, nil
+		return Installed{}, false, fmt.Errorf("confirm signed Creator app envelope before cache activation: %w", err)
 	}
+	// The second independent read must name the exact same signed artifact
+	// before a newly installed slot may be exposed to the caller.
 	if !bytes.Equal(firstBytes, verifyBytes) {
-		return installed, changed, nil
+		return Installed{}, false, errors.New("signed Creator app envelope changed while preparing cached update")
 	}
 	verifyManifest, err := VerifyEnvelope(verifyBytes, trustBytes, expectedTrustSHA256)
-	if err != nil || verifyManifest.SourceCommit != manifest.SourceCommit || verifyManifest.ReleaseSequence != manifest.ReleaseSequence {
-		return installed, changed, nil
+	if err != nil {
+		return Installed{}, false, fmt.Errorf("verify signed Creator app envelope before cache activation: %w", err)
+	}
+	if verifyManifest.SourceCommit != manifest.SourceCommit || verifyManifest.ReleaseSequence != manifest.ReleaseSequence {
+		return Installed{}, false, errors.New("signed Creator app identity changed while preparing cached update")
 	}
 	if err := checkRollback(actualRoot, verifyManifest, trustBytes, expectedTrustSHA256); err != nil {
 		return Installed{}, false, err
@@ -442,7 +447,7 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 		return Installed{}, false, err
 	}
 	if err := atomicfile.Replace(filepath.Join(actualRoot, currentEnvelopeName), verifyBytes); err != nil {
-		return installed, changed, nil
+		return Installed{}, false, fmt.Errorf("activate verified Creator app cache: %w", err)
 	}
 	return verified, changed, nil
 }
