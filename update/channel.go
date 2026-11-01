@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ const (
 	maxPayloadBytes        = int64(128 << 20)
 	maxExtractedBytes      = int64(256 << 20)
 	maxArchiveFileCount    = 128
-	maxInstalledPointerBytes = 16 << 10
+	maxInstalledPointerBytes = 128 << 10
 )
 
 var (
@@ -75,12 +76,20 @@ type legacyManifestV1 struct {
 	Entrypoints  legacyEntrypointsV1 `json:"entrypoints"`
 }
 
+type InstalledFile struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
 type Installed struct {
-	Schema       string `json:"$schema"`
-	Channel      string `json:"channel"`
-	Version      string `json:"version"`
-	SourceCommit string `json:"source_commit"`
-	Directory    string `json:"directory"`
+	Schema        string          `json:"$schema"`
+	Channel       string          `json:"channel"`
+	Version       string          `json:"version"`
+	SourceCommit  string          `json:"source_commit"`
+	Directory     string          `json:"directory"`
+	PayloadSHA256 string          `json:"payload_sha256"`
+	Files         []InstalledFile `json:"files"`
 }
 
 func installRoot() (string, error) {
@@ -420,6 +429,70 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
+// An unsigned development receipt detects cached byte changes only; it is
+// never evidence of publisher trust or physical-write authorization.
+func installedFileInventory(directory string) ([]InstalledFile, error) {
+	info, err := os.Lstat(directory)
+	if err != nil { return nil, err }
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("Creator development directory is unsafe")
+	}
+	files := make([]InstalledFile, 0, 8)
+	var total int64
+	err = filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil { return walkErr }
+		if path == directory { return nil }
+		rel, err := filepath.Rel(directory, path)
+		if err != nil { return err }
+		name := filepath.ToSlash(rel)
+		if !safeRelative(name) { return fmt.Errorf("unsafe cached Creator path %q", name) }
+		if entry.IsDir() { return nil }
+		if !entry.Type().IsRegular() || entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsafe cached Creator file %q", name)
+		}
+		if len(files) >= maxArchiveFileCount { return errors.New("Creator cache exceeds file limit") }
+		fileInfo, err := entry.Info()
+		if err != nil { return err }
+		if fileInfo.Size() < 0 || fileInfo.Size() > maxExtractedBytes-total {
+			return errors.New("Creator cache exceeds size limit")
+		}
+		file, err := os.Open(path)
+		if err != nil { return err }
+		hash := sha256.New()
+		n, readErr := io.Copy(hash, io.LimitReader(file, fileInfo.Size()+1))
+		closeErr := file.Close()
+		if readErr != nil { return readErr }
+		if closeErr != nil { return closeErr }
+		if n != fileInfo.Size() { return fmt.Errorf("cached Creator file %q changed while reading", name) }
+		total += n
+		files = append(files, InstalledFile{Path:name, Size:n, SHA256:hex.EncodeToString(hash.Sum(nil))})
+		return nil
+	})
+	if err != nil { return nil, err }
+	if len(files) == 0 { return nil, errors.New("Creator cache has no files") }
+	sort.Slice(files, func(i,j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
+
+func sameInstalledFiles(a,b []InstalledFile) bool {
+	if len(a) == 0 || len(a) != len(b) { return false }
+	for i := range a { if a[i] != b[i] { return false } }
+	return true
+}
+
+func verifyInstalledFiles(installed Installed) error {
+	if !shaPattern.MatchString(installed.PayloadSHA256) ||
+		len(installed.Files) == 0 || len(installed.Files) > maxArchiveFileCount {
+		return errors.New("Creator development cache lacks verified payload receipt")
+	}
+	actual, err := installedFileInventory(installed.Directory)
+	if err != nil { return err }
+	if !sameInstalledFiles(installed.Files,actual) {
+		return errors.New("Creator development cache file integrity mismatch")
+	}
+	return nil
+}
+
 func safeInstalledVersionsRoot(root string) error {
 	directory := filepath.Join(root, "versions")
 	info, err := os.Lstat(directory)
@@ -488,6 +561,9 @@ func Current(root string) (Installed, error) {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return Installed{}, errors.New("installed Creator directory is unavailable or unsafe")
 	}
+	if err := verifyInstalledFiles(current); err != nil {
+		return Installed{}, err
+	}
 	return current, nil
 }
 
@@ -495,73 +571,69 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 	if root == "" {
 		var err error
 		root, err = installRoot()
-		if err != nil {
-			return Installed{}, false, err
-		}
+		if err != nil { return Installed{}, false, err }
 	}
 	manifest, err := FetchManifest(client, manifestURL)
-	if err != nil {
-		return Installed{}, false, err
-	}
+	if err != nil { return Installed{}, false, err }
 	if current, err := Current(root); err == nil && current.SourceCommit == manifest.SourceCommit {
-		if current.Version != manifest.Version {
-			return Installed{}, false, errors.New("installed Creator version differs from the published version for the same source commit")
+		if current.Version != manifest.Version || current.PayloadSHA256 != manifest.Payload.SHA256 {
+			return Installed{}, false, errors.New("cached Creator metadata conflicts with published source/payload")
 		}
 		if err := verifyEntrypoints(current.Directory, manifest); err != nil {
 			return Installed{}, false, fmt.Errorf("installed Creator payload failed validation: %w", err)
 		}
 		return current, false, nil
 	}
+
 	versionsDir := filepath.Join(root, "versions")
-	if err := os.MkdirAll(versionsDir, 0o755); err != nil {
-		return Installed{}, false, err
-	}
-	if err := safeInstalledVersionsRoot(root); err != nil {
-		return Installed{}, false, err
-	}
+	if err := os.MkdirAll(versionsDir, 0o755); err != nil { return Installed{}, false, err }
+	if err := safeInstalledVersionsRoot(root); err != nil { return Installed{}, false, err }
 	finalDir := filepath.Join(versionsDir, manifest.SourceCommit)
+	existingSlot := false
 	if info, err := os.Lstat(finalDir); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return Installed{}, false, errors.New("existing Creator version slot is unsafe")
 		}
-		if err := verifyEntrypoints(finalDir, manifest); err != nil {
-			return Installed{}, false, fmt.Errorf("existing Creator version slot failed validation: %w", err)
-		}
-		installed := Installed{Schema: "prototype-ordax.creator-installed/1", Channel: manifest.Channel, Version: manifest.Version, SourceCommit: manifest.SourceCommit, Directory: finalDir}
-		data, _ := json.MarshalIndent(installed, "", "  ")
-		data = append(data, '\n')
-		if err := atomicfile.Replace(filepath.Join(root, "current.json"), data); err != nil {
-			return Installed{}, false, err
-		}
-		return installed, false, nil
+		existingSlot = true
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Installed{}, false, err
 	}
-
+	// Legacy or unverified slots require a fresh exact ZIP verification before
+	// adoption; never trust the existence of two expected executables alone.
 	tempDir, err := os.MkdirTemp(versionsDir, ".install-*")
-	if err != nil {
-		return Installed{}, false, err
-	}
+	if err != nil { return Installed{}, false, err }
 	defer os.RemoveAll(tempDir)
 	zipPath := filepath.Join(tempDir, "payload.zip")
-	if err := downloadPayload(client, manifest.Payload, zipPath); err != nil {
-		return Installed{}, false, err
-	}
+	if err := downloadPayload(client, manifest.Payload, zipPath); err != nil { return Installed{}, false, err }
 	extracted := filepath.Join(tempDir, "payload")
-	if err := os.Mkdir(extracted, 0o755); err != nil {
+	if err := os.Mkdir(extracted, 0o755); err != nil { return Installed{}, false, err }
+	if err := extractPayload(zipPath, extracted, manifest); err != nil { return Installed{}, false, err }
+	files, err := installedFileInventory(extracted)
+	if err != nil { return Installed{}, false, err }
+	changed := !existingSlot
+	if existingSlot {
+		localFiles, err := installedFileInventory(finalDir)
+		if err != nil || !sameInstalledFiles(files,localFiles) {
+			return Installed{}, false, errors.New("existing Creator version slot differs from verified development payload")
+		}
+	} else if err := os.Rename(extracted, finalDir); err != nil {
 		return Installed{}, false, err
 	}
-	if err := extractPayload(zipPath, extracted, manifest); err != nil {
-		return Installed{}, false, err
+	installed := Installed{
+		Schema:"prototype-ordax.creator-installed/1", Channel:manifest.Channel,
+		Version:manifest.Version, SourceCommit:manifest.SourceCommit,
+		Directory:finalDir, PayloadSHA256:manifest.Payload.SHA256, Files:files,
 	}
-	if err := os.Rename(extracted, finalDir); err != nil {
-		return Installed{}, false, err
-	}
-	installed := Installed{Schema: "prototype-ordax.creator-installed/1", Channel: manifest.Channel, Version: manifest.Version, SourceCommit: manifest.SourceCommit, Directory: finalDir}
-	data, _ := json.MarshalIndent(installed, "", "  ")
+	if err := verifyInstalledFiles(installed); err != nil { return Installed{}, false, err }
+	if err := verifyEntrypoints(finalDir, manifest); err != nil { return Installed{}, false, err }
+	data, err := json.MarshalIndent(installed, "", "  ")
+	if err != nil { return Installed{}, false, err }
 	data = append(data, '\n')
-	if err := atomicfile.Replace(filepath.Join(root, "current.json"), data); err != nil {
+	if len(data) > maxInstalledPointerBytes {
+		return Installed{}, false, errors.New("Creator development receipt exceeds size limit")
+	}
+	if err := atomicfile.Replace(filepath.Join(root,"current.json"),data); err != nil {
 		return Installed{}, false, err
 	}
-	return installed, true, nil
+	return installed, changed, nil
 }

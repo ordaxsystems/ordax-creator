@@ -3,6 +3,9 @@ package update
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -336,7 +339,7 @@ func TestCurrentRejectsOversizedInstalledPointer(t *testing.T) {
 
 func TestEnsureRejectsVersionMismatchAtIdenticalSourceCommit(t *testing.T) {
 	root := t.TempDir()
-	writeInstalledPointerForTest(t, root, "different-product-version")
+	writeAttestedPointerForTest(t, root, "different-product-version")
 	m := validManifestForTest()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
@@ -349,7 +352,153 @@ func TestEnsureRejectsVersionMismatchAtIdenticalSourceCommit(t *testing.T) {
 	}))
 	defer server.Close()
 	if _, _, err := Ensure(server.Client(), root, server.URL); err == nil ||
-		!strings.Contains(err.Error(), "version differs") {
+		!strings.Contains(err.Error(), "conflicts with published source/payload") {
 		t.Fatalf("same-source conflicting product version result = %v", err)
+	}
+}
+
+
+func writeAttestedPointerForTest(t *testing.T, root, version string) Installed {
+	t.Helper()
+	m := validManifestForTest()
+	if version == "" { version = m.Version }
+	dir := filepath.Join(root, "versions", m.SourceCommit)
+	if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+	for name, content := range map[string]string{
+		m.Entrypoints.Inspect: "@echo inspect\r\n",
+		m.Entrypoints.Status: "readonly-executable",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil { t.Fatal(err) }
+	}
+	files, err := installedFileInventory(dir)
+	if err != nil { t.Fatal(err) }
+	installed := Installed{
+		Schema: "prototype-ordax.creator-installed/1", Channel:m.Channel,
+		Version:version, SourceCommit:m.SourceCommit, Directory:dir,
+		PayloadSHA256:m.Payload.SHA256, Files:files,
+	}
+	data, err := json.Marshal(installed)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(root, "current.json"), data, 0o600); err != nil { t.Fatal(err) }
+	return installed
+}
+
+func TestCurrentVerifiesAllCachedDevelopmentFiles(t *testing.T) {
+	tests := []struct{
+		name string
+		mutate func(t *testing.T, installed Installed)
+	}{
+		{"changed-content", func(t *testing.T, installed Installed) {
+			if err := os.WriteFile(filepath.Join(installed.Directory,"ordax-creator-physical-test.exe"), []byte("tampered"), 0o600); err != nil { t.Fatal(err) }
+		}},
+		{"unexpected-extra-file", func(t *testing.T, installed Installed) {
+			if err := os.WriteFile(filepath.Join(installed.Directory, "unexpected.exe"), []byte("extra"), 0o600); err != nil { t.Fatal(err) }
+		}},
+		{"deleted-file", func(t *testing.T, installed Installed) {
+			if err := os.Remove(filepath.Join(installed.Directory,"ordax-creator-physical-test.exe")); err != nil { t.Fatal(err) }
+		}},
+		{"symlink", func(t *testing.T, installed Installed) {
+			target := filepath.Join(installed.Directory,"ordax-creator-physical-test.exe")
+			if err := os.Remove(target); err != nil { t.Fatal(err) }
+			if err := os.Symlink(filepath.Join(installed.Directory,"1-Inspect-OrdaXUSB.cmd"),target); err != nil {
+				t.Skipf("symlinks unavailable on host: %v",err)
+			}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name,func(t *testing.T) {
+			root := t.TempDir()
+			inst := writeAttestedPointerForTest(t, root, "")
+			if _, err := Current(root); err != nil { t.Fatalf("clean cache rejected: %v",err) }
+			tc.mutate(t,inst)
+			if _, err := Current(root); err == nil { t.Fatal("changed cache unexpectedly accepted") }
+		})
+	}
+}
+
+func TestCurrentRejectsLegacyUnattestedCache(t *testing.T) {
+	root := t.TempDir()
+	writeInstalledPointerForTest(t, root, "")
+	if _, err := Current(root); err == nil || !strings.Contains(err.Error(),"lacks verified payload receipt") {
+		t.Fatalf("legacy cache without integrity receipt: %v",err)
+	}
+}
+
+func TestEnsureReusesAttestedCacheWithoutDownloadingZIP(t *testing.T) {
+	root := t.TempDir()
+	writeAttestedPointerForTest(t,root,"")
+	m := validManifestForTest()
+	data, err := json.Marshal(m)
+	if err != nil { t.Fatal(err) }
+	var manifestRequests, payloadRequests int
+	client := &http.Client{Transport:developmentRoundTrip(func(req *http.Request)(*http.Response,error){
+		if strings.Contains(req.URL.Path,"creator-dev-manifest.json") {
+			manifestRequests++
+			return &http.Response{StatusCode:http.StatusOK,Body:io.NopCloser(bytes.NewReader(data)),Header:make(http.Header),Request:req},nil
+		}
+		payloadRequests++
+		return nil, io.EOF
+	})}
+	installed, changed, err := Ensure(client,root,"https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json")
+	if err != nil || changed || installed.SourceCommit != m.SourceCommit {
+		t.Fatalf("reuse result changed=%t commit=%q err=%v",changed,installed.SourceCommit,err)
+	}
+	if manifestRequests != 1 || payloadRequests != 0 {
+		t.Fatalf("unexpected network requests manifest=%d payload=%d",manifestRequests,payloadRequests)
+	}
+}
+
+type developmentRoundTrip func(*http.Request) (*http.Response,error)
+func (f developmentRoundTrip) RoundTrip(req *http.Request) (*http.Response,error) { return f(req) }
+
+func TestEnsureMigratesLegacyCacheOnlyAfterVerifiedZIPComparison(t *testing.T) {
+	root := t.TempDir()
+	writeInstalledPointerForTest(t,root,"")
+	m := validManifestForTest()
+	zipPath := writeZip(t,map[string]string{
+		m.Entrypoints.Inspect:"@echo inspect\r\n",
+		m.Entrypoints.Status:"readonly-executable",
+	})
+	zipBytes,err := os.ReadFile(zipPath)
+	if err != nil { t.Fatal(err) }
+	sum := sha256.Sum256(zipBytes)
+	m.Payload.SHA256 = hex.EncodeToString(sum[:])
+	m.Payload.Size = int64(len(zipBytes))
+	manifestBytes,err := json.Marshal(m)
+	if err != nil { t.Fatal(err) }
+	requests := 0
+	client := &http.Client{Transport:developmentRoundTrip(func(req *http.Request)(*http.Response,error){
+		requests++
+		var data []byte
+		if strings.Contains(req.URL.Path,"creator-dev-manifest.json") {
+			data = manifestBytes
+		} else if req.URL.String() == m.Payload.URL {
+			data = zipBytes
+		} else {
+			t.Errorf("unexpected external URL %s",req.URL)
+			return nil, io.EOF
+		}
+		return &http.Response{StatusCode:http.StatusOK,Body:io.NopCloser(bytes.NewReader(data)),Header:make(http.Header),Request:req},nil
+	})}
+	// Both channels use the same test transport; nothing is fetched externally.
+	existingDir := filepath.Join(root,"versions",m.SourceCommit)
+	for name,content := range map[string]string{
+		m.Entrypoints.Inspect:"@echo inspect\r\n",
+		m.Entrypoints.Status:"readonly-executable",
+	} {
+		if err := os.WriteFile(filepath.Join(existingDir,name),[]byte(content),0o600);err != nil { t.Fatal(err) }
+	}
+	installed,changed,err := Ensure(client,root,"https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json")
+	if err != nil || changed || installed.PayloadSHA256 != m.Payload.SHA256 {
+		t.Fatalf("legacy migration failed changed=%t err=%v",changed,err)
+	}
+	if requests != 2 { t.Fatalf("expected one manifest and one ZIP request, got %d",requests) }
+	if _,err := Current(root);err != nil { t.Fatalf("migrated offline receipt invalid: %v",err) }
+	_,changed,err = Ensure(client,root,"https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json")
+	if err != nil || changed || requests != 3 { t.Fatalf("second reuse changed=%t requests=%d err=%v",changed,requests,err) }
+	// A corrupted version slot must not be promoted or silently replaced.
+	if err := os.WriteFile(filepath.Join(existingDir,m.Entrypoints.Status),[]byte("corrupt"),0o600);err != nil { t.Fatal(err) }
+	if _,_,err := Ensure(client,root,"https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json");err == nil {
+		t.Fatal("tampered existing version slot silently accepted")
 	}
 }
