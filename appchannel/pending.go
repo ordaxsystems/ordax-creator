@@ -204,7 +204,7 @@ func AcquirePending(client *http.Client, root, envelopeURL string, trustBytes []
 // current with the health-checked pending candidate. If the current executable
 // is damaged but its signed envelope is still valid, the existing previous LKG
 // is retained while the newer candidate repairs current.
-func PromotePending(root, expectedSourceCommit string, trustBytes []byte, expectedTrustSHA256 string) (Installed, error) {
+func PromotePending(root string, healthChecked Manifest, trustBytes []byte, expectedTrustSHA256 string) (Installed, error) {
 	actualRoot, err := appRoot(root)
 	if err != nil {
 		return Installed{}, err
@@ -213,8 +213,12 @@ func PromotePending(root, expectedSourceCommit string, trustBytes []byte, expect
 	if err != nil {
 		return Installed{}, err
 	}
-	if pending.SourceCommit != expectedSourceCommit {
-		return Installed{}, errors.New("pending Creator app does not match the health-checked source commit")
+	// A source commit alone cannot prove the identity of a health-checked
+	// release. A separately signed envelope may carry the same commit but
+	// different version, sequence or artifact bindings. Only the precise
+	// manifest returned by AcquirePending may be promoted.
+	if pending.Manifest != healthChecked {
+		return Installed{}, errors.New("pending Creator app signed manifest differs from health-checked candidate")
 	}
 	if err := checkPendingRollback(actualRoot, pending.Manifest, trustBytes, expectedTrustSHA256); err != nil {
 		return Installed{}, err
