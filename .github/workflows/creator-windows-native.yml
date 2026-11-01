@@ -88,12 +88,12 @@ jobs:
           ORDAX_CREATOR_WINDOWS_UI_SMOKE: "1"
         run: |
           $ErrorActionPreference = 'Stop'
-          go test -count=1 ./core ./appchannel ./componentchannel ./physicalchannel ./internal/atomicfile ./internal/cachepath ./internal/releaseidentity ./internal/safefile ./update ./host/windows ./cmd/ordax-creator-app ./cmd/ordax-creator ./cmd/ordax-creator-native-targets
+          go test -count=1 ./core ./appchannel ./componentchannel ./physicalchannel ./internal/archivebounds ./internal/atomicfile ./internal/cachepath ./internal/releaseidentity ./internal/safefile ./update ./host/windows ./cmd/ordax-creator-app ./cmd/ordax-creator ./cmd/ordax-creator-native-targets
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows Go tests failed' }
           # Win32 WndProc LPARAM is a caller-owned borrowed struct pointer.
           # Go vet's unsafeptr heuristic flags four necessary callback casts;
           # keep default vet on all other packages and all other GUI checks.
-          go vet ./core ./appchannel ./componentchannel ./physicalchannel ./internal/atomicfile ./internal/cachepath ./internal/releaseidentity ./internal/safefile ./update ./host/windows ./cmd/ordax-creator
+          go vet ./core ./appchannel ./componentchannel ./physicalchannel ./internal/archivebounds ./internal/atomicfile ./internal/cachepath ./internal/releaseidentity ./internal/safefile ./update ./host/windows ./cmd/ordax-creator
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows Go vet failed in Core or adapters' }
           $abiCasts = @(Select-String -Path @('cmd/ordax-creator-app/main_windows.go','cmd/ordax-creator-app/creator_controls_windows.go') -Pattern 'unsafe\.Pointer\(lParam\)')
           if ($abiCasts.Count -ne 4) { throw 'Win32 callback ABI pointer boundary changed; audit required' }
