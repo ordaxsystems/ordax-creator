@@ -126,8 +126,18 @@ func drawCreatorPanel(hdc uintptr, bounds rect, fill, border string, radius int3
     procDeleteObject.Call(brush)
 }
 
+// The Surface-owned theme wins when present. Without a verified theme,
+// neutral circles use native button-face rather than Windows highlight.
+// Otherwise all four rail steps look complete/active on the first launch.
+func creatorCircleSystemFallback(fill string) uint32 {
+    if fill == "surface" || fill == "panel" {
+        return colorBtnFace
+    }
+    return colorHighlight
+}
+
 func drawCreatorCircle(hdc uintptr, bounds rect, fill, text string, textColor uintptr) {
-    brush, _, _ := procCreateSolidBrush.Call(creatorColorFor(fill, colorHighlight))
+    brush, _, _ := procCreateSolidBrush.Call(creatorColorFor(fill, creatorCircleSystemFallback(fill)))
     oldBrush, _, _ := procSelectObject.Call(hdc, brush)
     pen, _, _ := procCreatePen.Call(0, 1, creatorColorFor("border", colorGrayText))
     oldPen, _, _ := procSelectObject.Call(hdc, pen)
@@ -139,6 +149,31 @@ func drawCreatorCircle(hdc uintptr, bounds rect, fill, text string, textColor ui
     drawTextInRect(hdc, text, bounds, dtCenter|dtVCenter|dtSingleLine, textColor)
 }
 
+type creatorRailStepStyle struct {
+    Fill string
+    Glyph string
+    Emphasized bool
+}
+
+// Derive every rail indicator from the canonical creatorExperienceView.
+// Never infer completion from a displayed label or an unverified progress log.
+func creatorRailStyle(view creatorExperienceView, step int) creatorRailStepStyle {
+    done := (view.StepNumber > 0 && step < view.StepNumber) || view.Step == creatorStepComplete
+    active := view.StepNumber > 0 && step == view.StepNumber
+    style := creatorRailStepStyle{Fill: "surface", Glyph: fmt.Sprintf("%d", step), Emphasized: done || active}
+    if done {
+        style.Glyph = "✓"
+    }
+    if style.Emphasized {
+        style.Fill = "brand_blue"
+    }
+    if view.Step == creatorStepBlocked && active {
+        style.Fill = "warning"
+        style.Glyph = "!"
+    }
+    return style
+}
+
 func drawCreatorRail(hdc uintptr, left int32, view creatorExperienceView) {
     titles := [4]string{
         creatorT(msgConnectTitle),
@@ -146,7 +181,6 @@ func drawCreatorRail(hdc uintptr, left int32, view creatorExperienceView) {
         creatorT(msgReviewTitle),
         creatorT(msgCompleteTitle),
     }
-    active := view.StepNumber
     for i := 1; i <= 4; i++ {
         y := int32(217 + (i-1)*70)
         if i != 4 {
@@ -157,19 +191,14 @@ func drawCreatorRail(hdc uintptr, left int32, view creatorExperienceView) {
             procSelectObject.Call(hdc, old)
             procDeleteObject.Call(pen)
         }
-        done := (active > 0 && i < active) || view.Step == creatorStepComplete
-        activeStep := active > 0 && i == active
-        fill := "surface"
-        if done || activeStep { fill = "brand_blue" }
-        text := fmt.Sprintf("%d", i)
-        if done { text = "✓" }
-        if view.Step == creatorStepBlocked && activeStep {
-            fill = "warning"
-            text = "!"
+        style := creatorRailStyle(view, i)
+        labelColor := creatorColorFor("muted", colorGrayText)
+        glyphColor := creatorColorFor("text", colorWindowText)
+        if style.Emphasized {
+            labelColor = creatorColorFor("text", colorWindowText)
+            glyphColor = creatorColorFor("text", colorHighlightText)
         }
-        labelColor := creatorColorFor("muted", colorWindowText)
-        if done || activeStep { labelColor = creatorColorFor("text", colorWindowText) }
-        drawCreatorCircle(hdc, rect{left+19, y, left+53, y+34}, fill, text, creatorColorFor("text", colorHighlightText))
+        drawCreatorCircle(hdc, rect{left+19, y, left+53, y+34}, style.Fill, style.Glyph, glyphColor)
         drawTextInRect(hdc, titles[i-1], rect{left+69, y+2, left+288, y+28}, dtSingleLine|dtEndEllipsis, labelColor)
     }
 }
