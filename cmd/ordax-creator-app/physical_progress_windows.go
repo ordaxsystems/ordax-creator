@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math/bits"
 
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
@@ -43,7 +44,7 @@ func readPhysicalProgress(path string) (physicalProgressDocument, error) {
 	if document.Schema != physicalProgressSchema {
 		return physicalProgressDocument{}, fmt.Errorf("progress schema is incompatible")
 	}
-	if document.CompletedBytes < 0 || document.TotalBytes < 0 || (document.TotalBytes > 0 && document.CompletedBytes > document.TotalBytes) {
+	if document.CompletedBytes < 0 || document.TotalBytes < 0 || document.CompletedBytes > document.TotalBytes {
 		return physicalProgressDocument{}, fmt.Errorf("progress byte counters are invalid")
 	}
 	return document, nil
@@ -54,19 +55,26 @@ func guidedPhysicalProgressCopy(status, hint string) (string, string) {
 	return fmt.Sprintf("%s · %s", view.Eyebrow, status), fmt.Sprintf("%s %s", view.Title, hint)
 }
 
+// physicalProgressPercent scales valid, nonnegative 64-bit byte counters
+// exactly without overflowing when a large physical image is reported.
+// The phase spans are bounded, positive UI constants (at most 45 points).
+// The high word of completed*span is always < total while completed < total,
+// satisfying bits.Div64's quotient precondition.
+func physicalProgressPercent(completed, total int64, start, span int) int {
+	if total <= 0 || completed <= 0 || span <= 0 {
+		return start
+	}
+	if completed >= total {
+		return start + span
+	}
+	hi, lo := bits.Mul64(uint64(completed), uint64(span))
+	scaled, _ := bits.Div64(hi, lo, uint64(total))
+	return start + int(scaled)
+}
+
 func physicalProgressPresentation(document physicalProgressDocument) (status, hint string, percent int, ok bool) {
 	ratioPercent := func(start, span int) int {
-		if document.TotalBytes <= 0 {
-			return start
-		}
-		value := start + int((document.CompletedBytes*int64(span))/document.TotalBytes)
-		if value < start {
-			value = start
-		}
-		if value > start+span {
-			value = start + span
-		}
-		return value
+		return physicalProgressPercent(document.CompletedBytes, document.TotalBytes, start, span)
 	}
 	byteProgress := func(messageID creatorMessageID) string {
 		if document.TotalBytes <= 0 {

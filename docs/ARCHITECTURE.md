@@ -39,6 +39,12 @@ The Win32 GUI has one UI-thread-owned refresh-in-progress gate. From the moment 
 
 This presentation-level interlock complements, but **never replaces**, the signed physical channel, device-specific confirmation and independent privileged revalidation. The Windows native smoke uses only synthetic in-memory device data and intentionally starts no discovery, update, UAC or disk I/O.
 
+## Windows physical progress evidence
+
+The Win32 progress adapter treats the elevated helper's `prototype-ordax.creator-physical-progress/1` snapshot as **bounded, untrusted display evidence**, not permission to write or proof of a successful installation. Each snapshot is read through the shared `internal/safefile.ReadBoundedRegular` descriptor with its 4 KiB cap and exact schema. Byte counters must be nonnegative and satisfy `completed_bytes <= total_bytes`; in particular, nonzero completed bytes with zero total are invalid. Unknown totals show the beginning of the current phase rather than a fabricated fraction.
+
+The phase percentage uses an **exact overflow-free 128-bit multiplication/division** of valid 64-bit byte counters, preserving the existing phase ranges and avoiding signed `int64` overflow for large images. Tests cover the maximum signed byte counter with an independent arbitrary-precision reference, near-complete values and invalid snapshots. The privileged writer's independent consent, revalidation and success/failure exit checks are unchanged; visual progress cannot bypass them.
+
 ## Windows USB selection across refreshes
 
 Device discovery never implicitly selects a physical USB, even if only one target appears. The user must make an explicit selection before the GUI can expose the destructive confirmation step. A subsequent refresh may retain that explicit choice only when there is exactly one newly discovered safe target with the same non-empty device serial, disk number, physical capacity and lowercase physical confirmation token. A changed drive letter or volume label alone does not erase a provably stable choice. Missing serial, changed identity, duplicate candidates, a fatal refresh error or unready physical channel clears the selection and requires the user to choose again.
