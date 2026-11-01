@@ -1,8 +1,12 @@
 package physicalchannel
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -97,5 +101,85 @@ func TestPhysicalChannelRejectsRedirectedVersionsRootForCachedAndOnlineCandidate
 	}
 	if _, _, err := AcquireCached(server.Client(), root, server.URL, trust, trustSHA); err == nil {
 		t.Fatal("physical signed cache promotion accepted redirected versions root")
+	}
+}
+
+
+type physicalEnvelopeTransport func(*http.Request) (*http.Response, error)
+
+func (fn physicalEnvelopeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+// The actual physical candidate is installed once in a disposable test
+// directory. These requests never reach GitHub or a real disk.
+func TestPhysicalCachedAcquisitionRequiresStableSignedSecondRead(t *testing.T) {
+	for _, mode := range []string{"stable", "network-failure", "http-failure", "bad-signature", "same-commit-different-bundle", "pointer-write-failure"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			trust, private, trustSHA := testTrust(t)
+			candidate := sequencedCandidate(t, root, "0123456789abcdef0123456789abcdef01234567", 1)
+			first := signedEnvelope(t, candidate.Manifest, private)
+			second := first
+			switch mode {
+			case "same-commit-different-bundle":
+				other := candidate.Manifest
+				other.Bundle.SHA256 = strings.Repeat("b", 64)
+				second = signedEnvelope(t, other, private)
+			case "bad-signature":
+				var envelope Envelope
+				if err := json.Unmarshal(first, &envelope); err != nil {
+					t.Fatal(err)
+				}
+				envelope.Signature[0] ^= 0xff
+				var err error
+				second, err = json.Marshal(envelope)
+				if err != nil { t.Fatal(err) }
+			}
+			requests := 0
+			client := &http.Client{Transport: physicalEnvelopeTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				if req.URL.Host != "github.com" {
+					return nil, fmt.Errorf("unexpected real host %q", req.URL.Host)
+				}
+				if requests > 2 {
+					return nil, errors.New("unexpected third signed release fetch")
+				}
+				if requests == 2 {
+					switch mode {
+					case "network-failure":
+						return nil, errors.New("synthetic network failure")
+					case "http-failure":
+						return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header), Request: req}, nil
+					case "pointer-write-failure":
+						if err := os.Mkdir(filepath.Join(root, currentEnvelopeName), 0o700); err != nil {
+							return nil, err
+						}
+					}
+				}
+				body := first
+				if requests == 2 { body = second }
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header), Request: req}, nil
+			})}
+			installed, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA)
+			if requests != 2 {
+				t.Fatalf("expected exactly two signed fetches; got %d, err=%v", requests, err)
+			}
+			if mode == "stable" {
+				if err != nil || changed || installed.SourceCommit != candidate.SourceCommit {
+					t.Fatalf("stable signed candidate not accepted changed=%v commit=%s err=%v", changed, installed.SourceCommit, err)
+				}
+				if _, err := Current(root, trust, trustSHA); err != nil {
+					t.Fatalf("verified offline pointer not committed: %v", err)
+				}
+				return
+			}
+			if err == nil || changed || installed.SourceCommit != "" {
+				t.Fatalf("unconfirmed physical candidate was returned as success: changed=%v installed=%+v err=%v", changed, installed, err)
+			}
+			if _, err := Current(root, trust, trustSHA); err == nil {
+				t.Fatal("unconfirmed candidate became current after failed recheck")
+			}
+		})
 	}
 }

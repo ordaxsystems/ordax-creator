@@ -112,11 +112,18 @@ func decodeStrict(data []byte, max int, target any) error {
 
 func validHTTPSAssetURL(raw string) error {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.Fragment != "" {
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" ||
+		parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Opaque != "" || parsed.EscapedPath() != parsed.Path {
 		return errors.New("physical bundle URL must be canonical HTTPS github.com URL")
 	}
 	if !strings.HasPrefix(parsed.Path, bundleReleasePrefix) {
 		return errors.New("physical bundle URL must stay inside the creator-physical release")
+	}
+	asset := strings.TrimPrefix(parsed.Path, bundleReleasePrefix)
+	if asset == "" || asset == "." || asset == ".." ||
+		strings.ContainsAny(asset, "/\\") || !strings.HasSuffix(strings.ToLower(asset), ".zip") {
+		return errors.New("physical bundle URL must name one canonical ZIP release asset")
 	}
 	return nil
 }

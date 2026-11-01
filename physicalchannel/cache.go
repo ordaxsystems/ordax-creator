@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -105,11 +106,16 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 	verifyURL := envelopeURL + separator + "ordax_cache_verify=" + fmt.Sprint(time.Now().UnixNano())
 	envelopeBytes, err := fetchBytes(client, verifyURL, maxEnvelopeBytes)
 	if err != nil {
-		return installed, changed, nil
+		return Installed{}, false, fmt.Errorf("confirm physical signed release pointer before activation: %w", err)
 	}
 	manifest, err := VerifyEnvelope(envelopeBytes, trustBytes, expectedTrustSHA256)
-	if err != nil || manifest.SourceCommit != installed.SourceCommit {
-		return installed, changed, nil
+	if err != nil {
+		return Installed{}, false, fmt.Errorf("confirm physical signed release envelope before activation: %w", err)
+	}
+	// A repeated source commit alone is insufficient: the signed archive,
+	// bindings, and Portable payload must all be unchanged between reads.
+	if !reflect.DeepEqual(manifest, installed.Manifest) {
+		return Installed{}, false, errors.New("physical signed release manifest changed while preparing candidate")
 	}
 	verified := Installed{SourceCommit: manifest.SourceCommit, Directory: installed.Directory, Manifest: manifest}
 	if err := VerifyInstalled(verified.Directory, verified.Manifest); err != nil {
@@ -119,7 +125,7 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 		return Installed{}, false, err
 	}
 	if err := atomicfile.Replace(filepath.Join(actualRoot, currentEnvelopeName), envelopeBytes); err != nil {
-		return installed, changed, nil
+		return Installed{}, false, fmt.Errorf("activate verified physical release cache: %w", err)
 	}
 	return verified, changed, nil
 }
