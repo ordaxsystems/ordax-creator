@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,6 +184,8 @@ func TestSafeRelativeRejectsAmbiguousWindowsPathsOnAllHosts(t *testing.T) {
 		"payload.exe:stream", "nested/NUL", "nested/CON.txt",
 		"nested/com1.exe", "nested/LPT9", "nested/COM¹",
 		"trailing.", "nested/trailing ", "a//b", "./payload.exe",
+		"nested/a<b", "nested/a>b", "nested/a?b", "nested/a*b",
+		"nested/a|b", "nested/a\"b", "nested/control\x1f",
 		"../payload.exe", "/absolute/payload.exe",
 	} {
 		if safeRelative(name) {
@@ -227,5 +231,125 @@ func TestExtractPayloadRejectsCaseFoldedDuplicatePaths(t *testing.T) {
 	if err := extractPayload(zipPath, destination, validManifestForTest()); err == nil ||
 		!strings.Contains(err.Error(), "duplicate archive path") {
 		t.Fatalf("case-folded duplicate error = %v", err)
+	}
+}
+
+
+func TestExtractPayloadAcceptsExplicitCanonicalDirectories(t *testing.T) {
+	m := validManifestForTest()
+	zipPath := writeZip(t, map[string]string{
+		"bin/":               "",
+		"bin/helper.exe":     "safe helper",
+		m.Entrypoints.Inspect: "read-only inspect",
+		m.Entrypoints.Status:  "read-only status",
+	})
+	destination := filepath.Join(t.TempDir(), "out")
+	if err := os.Mkdir(destination, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractPayload(zipPath, destination, m); err != nil {
+		t.Fatalf("explicit directory ZIP entry was rejected: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(destination, "bin", "helper.exe"))
+	if err != nil || string(data) != "safe helper" {
+		t.Fatalf("extracted helper bytes=%q error=%v", data, err)
+	}
+}
+
+func writeInstalledPointerForTest(t *testing.T, root, version string) Installed {
+	t.Helper()
+	m := validManifestForTest()
+	if version == "" {
+		version = m.Version
+	}
+	directory := filepath.Join(root, "versions", m.SourceCommit)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current := Installed{
+		Schema: "prototype-ordax.creator-installed/1",
+		Channel: m.Channel,
+		Version: version,
+		SourceCommit: m.SourceCommit,
+		Directory: directory,
+	}
+	data, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "current.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return current
+}
+
+func TestCurrentRejectsSymlinkPointerAndVersionRoot(t *testing.T) {
+	t.Run("pointer", func(t *testing.T) {
+		root := t.TempDir()
+		writeInstalledPointerForTest(t, root, "")
+		source := filepath.Join(root, "current.json")
+		bytes, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		backing := filepath.Join(t.TempDir(), "pointer.json")
+		if err := os.WriteFile(backing, bytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(source); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(backing, source); err != nil {
+			t.Skipf("symlinks unavailable on this host: %v", err)
+		}
+		if _, err := Current(root); err == nil {
+			t.Fatal("symlinked installed pointer accepted")
+		}
+	})
+	t.Run("versions", func(t *testing.T) {
+		root := t.TempDir()
+		writeInstalledPointerForTest(t, root, "")
+		versions := filepath.Join(root, "versions")
+		backing := filepath.Join(t.TempDir(), "versions")
+		if err := os.Rename(versions, backing); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(backing, versions); err != nil {
+			t.Skipf("symlinks unavailable on this host: %v", err)
+		}
+		if _, err := Current(root); err == nil {
+			t.Fatal("symlinked installed versions root accepted")
+		}
+	})
+}
+
+func TestCurrentRejectsOversizedInstalledPointer(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "current.json"),
+		[]byte(strings.Repeat("x", maxInstalledPointerBytes+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root); err == nil {
+		t.Fatal("oversized installed pointer accepted")
+	}
+}
+
+func TestEnsureRejectsVersionMismatchAtIdenticalSourceCommit(t *testing.T) {
+	root := t.TempDir()
+	writeInstalledPointerForTest(t, root, "different-product-version")
+	m := validManifestForTest()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			t.Errorf("unexpected method %q", req.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(m); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+	if _, _, err := Ensure(server.Client(), root, server.URL); err == nil ||
+		!strings.Contains(err.Error(), "version differs") {
+		t.Fatalf("same-source conflicting product version result = %v", err)
 	}
 }
