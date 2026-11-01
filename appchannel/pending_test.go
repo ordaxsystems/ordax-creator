@@ -302,8 +302,7 @@ func TestPromotePendingRequiresExactHealthCheckedSignedManifest(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, pendingEnvelopeName), signedEnvelope(t, swapped, private), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			_, err = readInstalledEnvelopeManifestForTest(root, trust, trustSHA)
-			if err != nil {
+			if _, _, err := readInstalledEnvelope(root, pendingEnvelopeName, trust, trustSHA); err != nil {
 				t.Fatalf("swapped manifest must still be validly signed and locally installed: %v", err)
 			}
 			if _, err := PromotePending(root, pending.Manifest, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "health-checked candidate") {
@@ -329,7 +328,3 @@ func TestPromotePendingRequiresExactHealthCheckedSignedManifest(t *testing.T) {
 	}
 }
 
-func readInstalledEnvelopeManifestForTest(root string, trust []byte, trustSHA string) (Manifest, error) {
-	installed, _, err := readInstalledEnvelope(root, pendingEnvelopeName, trust, trustSHA)
-	return installed.Manifest, err
-}
