@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"github.com/ordaxsystems/ordax-creator/internal/releaseidentity"
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
@@ -236,11 +237,7 @@ func ensureNotRollback(root string, candidate Installed, trustBytes []byte, expe
 	if err != nil {
 		return fmt.Errorf("current physical release sequence invalid: %w", err)
 	}
-	if candidateSequence < currentSequence {
-		return fmt.Errorf("physical release rollback rejected: candidate sequence %d is older than current sequence %d", candidateSequence, currentSequence)
-	}
-	if candidateSequence == currentSequence && candidate.SourceCommit != current.SourceCommit {
-		return fmt.Errorf("physical release sequence %d was reused by a different source commit", candidateSequence)
-	}
-	return nil
+	return releaseidentity.Check("physical release",
+		candidate.SourceCommit, candidateSequence, candidate.Manifest,
+		current.SourceCommit, currentSequence, current.Manifest)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
+	"github.com/ordaxsystems/ordax-creator/internal/releaseidentity"
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
@@ -72,13 +73,9 @@ func LastKnownGood(root string, trustBytes []byte, expectedTrustSHA256 string) (
 }
 
 func checkManifestAgainstBaseline(candidate, baseline Manifest) error {
-	if candidate.ReleaseSequence < baseline.ReleaseSequence {
-		return fmt.Errorf("Creator app rollback rejected: candidate sequence %d is older than signed baseline sequence %d", candidate.ReleaseSequence, baseline.ReleaseSequence)
-	}
-	if candidate.ReleaseSequence == baseline.ReleaseSequence && candidate.SourceCommit != baseline.SourceCommit {
-		return fmt.Errorf("Creator app release sequence %d was reused by a different source commit", candidate.ReleaseSequence)
-	}
-	return nil
+	return releaseidentity.Check("Creator app",
+		candidate.SourceCommit, candidate.ReleaseSequence, candidate,
+		baseline.SourceCommit, baseline.ReleaseSequence, baseline)
 }
 
 // checkPendingRollback uses the signed current envelope as the monotonic

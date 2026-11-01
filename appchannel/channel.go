@@ -20,6 +20,7 @@ import (
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
+	"github.com/ordaxsystems/ordax-creator/internal/releaseidentity"
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
@@ -350,13 +351,9 @@ func checkRollback(root string, candidate Manifest, trustBytes []byte, expectedT
 	if err != nil {
 		return fmt.Errorf("existing Creator app baseline is invalid; refusing rollback-sensitive update: %w", err)
 	}
-	if candidate.ReleaseSequence < current.ReleaseSequence {
-		return fmt.Errorf("Creator app rollback rejected: candidate sequence %d is older than current sequence %d", candidate.ReleaseSequence, current.ReleaseSequence)
-	}
-	if candidate.ReleaseSequence == current.ReleaseSequence && candidate.SourceCommit != current.SourceCommit {
-		return fmt.Errorf("Creator app release sequence %d was reused by a different source commit", candidate.ReleaseSequence)
-	}
-	return nil
+	return releaseidentity.Check("Creator app",
+		candidate.SourceCommit, candidate.ReleaseSequence, candidate,
+		current.SourceCommit, current.ReleaseSequence, current.Manifest)
 }
 
 func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []byte, expectedTrustSHA256 string) (Installed, bool, error) {
