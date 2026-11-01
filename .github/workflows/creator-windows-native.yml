@@ -90,6 +90,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           go test -count=1 ./core ./appchannel ./componentchannel ./physicalchannel ./internal/archivebounds ./internal/atomicfile ./internal/cachepath ./internal/releaseidentity ./internal/safefile ./update ./host/windows ./cmd/ordax-creator-app ./cmd/ordax-creator-launcher ./cmd/ordax-creator ./cmd/ordax-creator-native-targets
           if ($LASTEXITCODE -ne 0) { throw 'Native Windows Go tests failed' }
+          # Execute only the synthetic Portable progress unit tests of the
+          # build-tagged writer package. No writer entrypoint, disk discovery,
+          # elevation or media-access test is run.
+          go test -count=1 -tags ordax_raw_backend -run '^TestPortableProgress' ./host/windows
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows Portable progress unit tests failed' }
           # Win32 WndProc LPARAM is a caller-owned borrowed struct pointer.
           # Go vet's unsafeptr heuristic flags four necessary callback casts;
           # keep default vet on all other packages and all other GUI checks.
