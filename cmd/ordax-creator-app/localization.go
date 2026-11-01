@@ -124,6 +124,14 @@ const (
 	msgPortablePlanHint          creatorMessageID = "creator.write.portablePlan.hint"
 	msgPortableElevationHint     creatorMessageID = "creator.write.portableElevation.hint"
 	msgPortableVerifiedHint      creatorMessageID = "creator.write.portableVerified.hint"
+	msgPortablePartitionStatus   creatorMessageID = "creator.progress.portable.partition.status"
+	msgPortablePartitionHint     creatorMessageID = "creator.progress.portable.partition.hint"
+	msgPortableFormatStatus      creatorMessageID = "creator.progress.portable.format.status"
+	msgPortableFormatHint        creatorMessageID = "creator.progress.portable.format.hint"
+	msgPortableCopyStatus        creatorMessageID = "creator.progress.portable.copy.status"
+	msgPortableCopyBytes         creatorMessageID = "creator.progress.portable.copy.bytes"
+	msgPortableLayoutStatus      creatorMessageID = "creator.progress.portable.layout.status"
+	msgPortableLayoutHint        creatorMessageID = "creator.progress.portable.layout.hint"
 )
 
 var creatorPTBRMessages = map[creatorMessageID]string{
@@ -235,6 +243,14 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgPortablePlanHint:          "O Creator Core está vinculando o layout e os 17 artefatos assinados ao USB selecionado.",
 	msgPortableElevationHint:     "Confirme o Controle de Conta de Usuário. O helper elevado revalidará o USB, os 17 sources e o plano antes da primeira escrita.",
 	msgPortableVerifiedHint:      "GPT, ORDAX-ESP, ORDAX-DATA e os 17 artefatos passaram pela verificação de leitura.",
+	msgPortablePartitionStatus:   "Criando as partições GPT do USB…",
+	msgPortablePartitionHint:     "Configurando ORDAX-ESP e ORDAX-DATA no dispositivo selecionado.",
+	msgPortableFormatStatus:      "Formatando as partições do USB…",
+	msgPortableFormatHint:        "Preparando ORDAX-ESP em FAT32 e ORDAX-DATA em exFAT.",
+	msgPortableCopyStatus:        "Copiando os 17 artefatos do OrdaX…",
+	msgPortableCopyBytes:         "Arquivos gravados: {completed} de {total} MiB.",
+	msgPortableLayoutStatus:      "Conferindo o layout final do USB…",
+	msgPortableLayoutHint:        "Validando GPT, sistemas de arquivos e rótulos após a verificação dos artefatos.",
 }
 
 var creatorENUSMessages = map[creatorMessageID]string{
@@ -346,6 +362,14 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgPortablePlanHint:          "Creator Core is binding the layout and all 17 signed artifacts to the selected USB device.",
 	msgPortableElevationHint:     "Confirm the User Account Control prompt. The elevated helper will revalidate the USB device, all 17 sources, and the plan before the first write.",
 	msgPortableVerifiedHint:      "GPT, ORDAX-ESP, ORDAX-DATA, and all 17 artifacts passed read-back verification.",
+	msgPortablePartitionStatus:   "Creating USB GPT partitions…",
+	msgPortablePartitionHint:     "Configuring ORDAX-ESP and ORDAX-DATA on the selected device.",
+	msgPortableFormatStatus:      "Formatting the USB partitions…",
+	msgPortableFormatHint:        "Preparing ORDAX-ESP as FAT32 and ORDAX-DATA as exFAT.",
+	msgPortableCopyStatus:        "Copying the 17 OrdaX artifacts…",
+	msgPortableCopyBytes:         "Files written: {completed} of {total} MiB.",
+	msgPortableLayoutStatus:      "Checking the final USB layout…",
+	msgPortableLayoutHint:        "Validating GPT, filesystems, and labels after artifact readback.",
 }
 
 var (
