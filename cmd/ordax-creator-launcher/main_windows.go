@@ -118,7 +118,7 @@ func launch(resolution appResolution) error {
 		}
 		return start(fallback)
 	}
-	promoted, err := appchannel.PromotePending("", resolution.Installed.SourceCommit, resolution.Trust, resolution.TrustSHA)
+	promoted, err := appchannel.PromotePending("", resolution.Installed.Manifest, resolution.Trust, resolution.TrustSHA)
 	if err != nil {
 		_ = appchannel.DiscardPending("")
 		fallback, fallbackErr := appchannel.LastKnownGood("", resolution.Trust, resolution.TrustSHA)
