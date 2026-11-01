@@ -3,7 +3,7 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	physicalchannel "github.com/ordaxsystems/ordax-creator/physicalchannel"
@@ -336,24 +337,37 @@ func creatorBuildLabel(state appRefreshState) string {
 	return label
 }
 
+// The backend is read only in this path. Do not include raw command arguments
+// or helper stderr in UI errors: --confirm and other values are sensitive.
 func runBackendHidden(directory string, args ...string) ([]byte, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("Creator backend operation was not specified")
+	}
+	operation := args[0]
+	if !backendReadOnlyOperation(operation) {
+		return nil, fmt.Errorf("Creator backend operation is not allowed in the unelevated UI")
+	}
 	exe := filepath.Join(directory, "ordax-creator-physical-test.exe")
-	command := exec.Command(exe, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), backendOperationTimeout(operation))
+	defer cancel()
+
+	command := exec.CommandContext(ctx, exe, args...)
 	command.Dir = directory
+	command.WaitDelay = 2 * time.Second
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
-		detail := strings.TrimSpace(stderr.String())
-		if detail == "" {
-			detail = strings.TrimSpace(stdout.String())
-		}
-		if detail != "" {
-			return nil, fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, detail)
-		}
-		return nil, fmt.Errorf("%s: %w", strings.Join(args, " "), err)
+	stdout := &boundedBackendOutput{maxBytes: maxBackendStdoutBytes}
+	stderr := &boundedBackendOutput{maxBytes: maxBackendStderrBytes}
+	command.Stdout = stdout
+	command.Stderr = stderr
+	runErr := command.Run()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("Creator backend %s timed out: %w", operation, ctx.Err())
+	}
+	if stdout.overflow || stderr.overflow {
+		return nil, fmt.Errorf("Creator backend %s exceeded the output size limit", operation)
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("Creator backend %s failed: %w", operation, runErr)
 	}
 	return stdout.Bytes(), nil
 }
