@@ -134,14 +134,7 @@ func ReleaseSequence(installed Installed) (int64, error) {
 		return 0, err
 	}
 	path := filepath.Join(installed.Directory, "provenance.json")
-	info, err := os.Lstat(path)
-	if err != nil {
-		return 0, err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return 0, errors.New("physical provenance is not a regular non-symlink file")
-	}
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadBoundedRegular(path, maxProvenanceBytes)
 	if err != nil {
 		return 0, err
 	}
