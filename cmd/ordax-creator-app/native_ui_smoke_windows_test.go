@@ -5,6 +5,7 @@ package main
 import (
     "os"
     "runtime"
+    "strings"
     "testing"
     "unsafe"
 )
@@ -181,6 +182,54 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
         t.Fatal("queued completion overwrote an active physical run")
     }
     t.Log("Delayed native progress and completion messages cannot replace another lifecycle state")
+
+    // Physical failure presentation and retry are exercised with actual
+    // native controls but no physical discovery, UAC, process or disk access.
+    stateMu.Lock()
+    priorRefreshState := refreshState
+    refreshState = appRefreshState{} // retry must not require a cached USB.
+    stateMu.Unlock()
+    defer func() {
+        stateMu.Lock()
+        refreshState = priorRefreshState
+        stateMu.Unlock()
+    }()
+    writeMu.Lock()
+    writeState = physicalWriteState{
+        Error: "synthetic Portable readback failure",
+        DiagnosticPath: `C:\Temp\ordax-physical-write-report.txt`,
+    }
+    writeMu.Unlock()
+    setCreatorLocale(string(creatorLocalePTBR))
+    renderWriteDone()
+    if caption := creatorControlCaption(writeButton); caption != creatorT(msgActionRetry) || !isEnabled() {
+        t.Fatalf("no-target failure did not keep safe retry available: caption=%q enabled=%t", caption, isEnabled())
+    }
+    if caption := creatorControlCaption(bootHelpButton); caption != creatorT(msgActionFailureDetails) {
+        t.Fatalf("failure detail action not displayed: %q", caption)
+    }
+    setCreatorLocale(string(creatorLocaleENUS))
+    renderCreatorLocaleUI()
+    expected := creatorExperience(creatorExperienceInput{ErrorMessageID:msgPhysicalWriteFailedDetail, ErrorStepNumber:4})
+    if creatorStatusText != expected.Title || creatorControlCaption(writeButton) != creatorT(msgActionRetry) ||
+        creatorControlCaption(bootHelpButton) != creatorT(msgActionFailureDetails) ||
+        !isEnabled() {
+        t.Fatalf("locale change erased failed-write state: status=%q retry=%q details=%q",
+            creatorStatusText, creatorControlCaption(writeButton), creatorControlCaption(bootHelpButton))
+    }
+    if !strings.Contains(creatorHintText, "ordax-physical-write-report.txt") {
+        t.Fatalf("localized failure lost diagnostic reference: %q",creatorHintText)
+    }
+    send(deviceCombo, cbSetCurSel, 0, 0)
+    if selectedTargetIndex() != 0 {
+        t.Fatal("synthetic selection not established for recovery test")
+    }
+    clearUSBSelectionForRecovery()
+    if selectedTargetIndex() != -1 {
+        t.Fatal("recovery retained an old physical target without a new explicit choice")
+    }
+    t.Log("Native retry remains available without USB, error survives locale change, and previous target is cleared")
+
 
 
 

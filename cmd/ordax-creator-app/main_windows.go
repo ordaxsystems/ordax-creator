@@ -492,6 +492,8 @@ func renderSelectionExperience(state appRefreshState) {
 		enable(writeButton, false)
 		return
 	}
+	setText(bootHelpButton, creatorT(msgActionBootHelp))
+	enable(bootHelpButton, true)
 	view := selectionExperience(state)
 	status := view.Title
 	if view.Eyebrow != "" {
@@ -512,6 +514,15 @@ func renderSelectionExperience(state appRefreshState) {
 		setText(writeButton, creatorT(msgActionCreate))
 	}
 	invalidateGuidedVisual()
+}
+
+// A destructive failure can leave the selected USB repartitioned. The
+// recovery refresh must not silently restore the previous target choice.
+// It still requires fresh discovery, explicit selection and new consent.
+func clearUSBSelectionForRecovery() {
+	if deviceCombo != 0 {
+		send(deviceCombo, cbSetCurSel, ^uintptr(0), 0)
+	}
 }
 
 func updateSelectionUI() {
@@ -580,6 +591,8 @@ func beginRefresh() {
 		pendingRefreshSelection = &selected
 	}
 	resetWriteResult()
+	setText(bootHelpButton, creatorT(msgActionBootHelp))
+	enable(bootHelpButton, true)
 	setCreatorStatus(creatorT(msgRefreshSearching))
 	setCreatorHint(creatorT(msgRefreshHint))
 	enable(refreshButton, false)
@@ -609,7 +622,12 @@ func renderCreatorLocaleUI() {
 	} else {
 		setCreatorVersion("OrdaX Creator • " + creatorT(msgVersionChecking))
 	}
-	if !writeInProgress() {
+	writeMu.Lock()
+	terminal := !writeState.Active && (writeState.Success || writeState.Error != "")
+	writeMu.Unlock()
+	if terminal && !refreshInProgress {
+		renderWriteDone()
+	} else if !writeInProgress() {
 		renderSelectionExperience(state)
 	}
 	renderUpdateUI()
@@ -665,7 +683,17 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			return 0
 		}
 		if id == idBootHelp && notify == bnClicked {
-			messageBox(creatorBootHelpText(), creatorT(msgActionBootHelp), mbOK|mbIconInformation)
+			writeMu.Lock()
+			state := writeState
+			writeMu.Unlock()
+			if state.Active {
+				return 0
+			}
+			if details := physicalWriteFailureDetails(state); details != "" {
+				messageBox(details, creatorT(msgActionFailureDetails), mbOK|mbIconInformation)
+			} else {
+				messageBox(creatorBootHelpText(), creatorT(msgActionBootHelp), mbOK|mbIconInformation)
+			}
 			return 0
 		}
 		if id == idWrite && notify == bnClicked {
@@ -683,7 +711,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 				return 0
 			}
 			if terminalError {
-				resetWriteResult()
+				clearUSBSelectionForRecovery()
 				beginRefresh()
 				return 0
 			}
