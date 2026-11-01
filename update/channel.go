@@ -21,6 +21,7 @@ import (
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const (
@@ -457,16 +458,10 @@ func installedFileInventory(directory string) ([]InstalledFile, error) {
 		if fileInfo.Size() < 0 || fileInfo.Size() > maxExtractedBytes-total {
 			return errors.New("Creator cache exceeds size limit")
 		}
-		file, err := os.Open(path)
-		if err != nil { return err }
-		hash := sha256.New()
-		n, readErr := io.Copy(hash, io.LimitReader(file, fileInfo.Size()+1))
-		closeErr := file.Close()
-		if readErr != nil { return readErr }
-		if closeErr != nil { return closeErr }
-		if n != fileInfo.Size() { return fmt.Errorf("cached Creator file %q changed while reading", name) }
+		hash, n, err := safefile.DigestInventoryRegular(path, fileInfo.Size())
+		if err != nil { return fmt.Errorf("verify cached Creator file %q: %w", name, err) }
 		total += n
-		files = append(files, InstalledFile{Path:name, Size:n, SHA256:hex.EncodeToString(hash.Sum(nil))})
+		files = append(files, InstalledFile{Path:name, Size:n, SHA256:hash})
 		return nil
 	})
 	if err != nil { return nil, err }
@@ -503,31 +498,14 @@ func Current(root string) (Installed, error) {
 		}
 	}
 	pointer := filepath.Join(root, "current.json")
-	pointerInfo, err := os.Lstat(pointer)
+	// The development receipt is unsigned but still a local integrity
+	// boundary: reject a switched or symlinked pointer on its opened handle.
+	data, err := safefile.ReadBoundedRegular(pointer, maxInstalledPointerBytes)
 	if err != nil {
 		return Installed{}, err
-	}
-	if !pointerInfo.Mode().IsRegular() || pointerInfo.Mode()&os.ModeSymlink != 0 ||
-		pointerInfo.Size() <= 0 || pointerInfo.Size() > maxInstalledPointerBytes {
-		return Installed{}, errors.New("installed Creator pointer is unsafe")
-	}
-	pointerFile, err := os.Open(pointer)
-	if err != nil {
-		return Installed{}, err
-	}
-	data, readErr := io.ReadAll(io.LimitReader(pointerFile, maxInstalledPointerBytes+1))
-	closeErr := pointerFile.Close()
-	if readErr != nil {
-		return Installed{}, readErr
-	}
-	if closeErr != nil {
-		return Installed{}, closeErr
-	}
-	if len(data) == 0 || len(data) > maxInstalledPointerBytes {
-		return Installed{}, errors.New("installed Creator pointer size is invalid")
 	}
 	var current Installed
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&current); err != nil {
 		return Installed{}, err

@@ -56,3 +56,55 @@ func TestDigestBoundRegularRejectsSymlinkDirectoryAndOversizedSparseFile(t *test
 		t.Fatalf("oversized sparse file bypassed size bound: %v", err)
 	}
 }
+
+func TestDigestInventoryRegularAllowsEmptyFilesWithoutWeakeningSignedPolicy(t *testing.T) {
+	root := t.TempDir()
+	empty := filepath.Join(root, "empty-file")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected := sha256.Sum256(nil)
+	digest, size, err := DigestInventoryRegular(empty, 0)
+	if err != nil || size != 0 || digest != hex.EncodeToString(expected[:]) {
+		t.Fatalf("empty Dev cache file unexpectedly rejected: sha=%s size=%d err=%v", digest, size, err)
+	}
+	if _, _, err := DigestBoundRegular(empty, 0); err == nil {
+		t.Fatal("signed artifact unexpectedly accepted empty file")
+	}
+	for _, size := range []int64{-1, 1, int64(^uint64(0) >> 1)} {
+		if _, _, err := DigestInventoryRegular(empty, size); err == nil {
+			t.Fatalf("invalid Dev cache size %d accepted", size)
+		}
+	}
+	if _, _, err := DigestInventoryRegular(root, 0); err == nil {
+		t.Fatal("directory accepted as empty regular cache file")
+	}
+	link := filepath.Join(root, "linked-empty")
+	if err := os.Symlink(empty, link); err == nil {
+		if _, _, err := DigestInventoryRegular(link, 0); err == nil {
+			t.Fatal("symlink to empty cache file accepted")
+		}
+	} else {
+		t.Logf("symlinks unavailable on host: %v", err)
+	}
+}
+
+func TestDigestInventoryRegularRejectsReplacedOrUnexpectedlySizedFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "receipt-source")
+	body := []byte("legitimate development receipt")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expected := sha256.Sum256(body)
+	got, size, err := DigestInventoryRegular(path, int64(len(body)))
+	if err != nil || got != hex.EncodeToString(expected[:]) || size != int64(len(body)) {
+		t.Fatalf("development cache digest mismatch: sha=%s size=%d err=%v", got, size, err)
+	}
+	if err := os.Truncate(path, 8<<20); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := DigestInventoryRegular(path, int64(len(body))); err == nil || !strings.Contains(err.Error(), "changed size") {
+		t.Fatalf("oversized sparse cache file passed bounded identity check: %v", err)
+	}
+}
