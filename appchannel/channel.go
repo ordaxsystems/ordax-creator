@@ -420,8 +420,7 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 		changed = true
 	}
 
-	installed, err := installedFrom(actualRoot, manifest)
-	if err != nil {
+	if _, err := installedFrom(actualRoot, manifest); err != nil {
 		return Installed{}, false, err
 	}
 	verifyBytes, err := fetchBytes(client, envelopeURL+separator+"ordax_cache_verify="+fmt.Sprint(time.Now().UnixNano()), maxEnvelopeBytes)
