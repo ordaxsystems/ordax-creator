@@ -3,7 +3,6 @@ package safefile
 import (
 	"bytes"
 	"errors"
-	"io"
 	"runtime"
 	"crypto/sha256"
 	"encoding/hex"
