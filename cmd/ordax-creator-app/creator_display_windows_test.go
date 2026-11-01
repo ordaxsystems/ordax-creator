@@ -40,3 +40,85 @@ func TestShortSourceCommitRejectsNonHexIdentity(t *testing.T) {
 		t.Fatalf("invalid source commit rendered as trusted build identity: %q", got)
 	}
 }
+
+func TestUSBSelectionMustBeExplicitOnFirstDiscovery(t *testing.T) {
+	target := physicalTarget{
+		DiskNumber: 1, DeviceSerial: "USB-001",
+		PhysicalDiskBytes: 8 << 30, PrototypeSafe: true,
+		ConfirmationToken: strings.Repeat("a", 64),
+	}
+	if got := restoredUSBSelectionIndex(nil, []physicalTarget{target}); got != -1 {
+		t.Fatalf("first discovery implicitly selected a destructive target: %d", got)
+	}
+}
+
+func TestUSBSelectionRestoresOnlySameUniquePhysicalDevice(t *testing.T) {
+	selected := physicalTarget{
+		DiskNumber: 2, DriveLetter: "E:", VolumeLabel: "USB",
+		DeviceSerial: "SERIAL-ONE", PhysicalDiskBytes: 8 << 30,
+		PrototypeSafe: true, ConfirmationToken: strings.Repeat("a", 64),
+	}
+	other := physicalTarget{
+		DiskNumber: 3, DriveLetter: "F:", VolumeLabel: "OTHER",
+		DeviceSerial: "SERIAL-TWO", PhysicalDiskBytes: 16 << 30,
+		PrototypeSafe: true, ConfirmationToken: strings.Repeat("b", 64),
+	}
+	renamed := selected
+	renamed.DriveLetter = "Z:"
+	renamed.VolumeLabel = "ORDAX-ESP"
+	if got := restoredUSBSelectionIndex(&selected, []physicalTarget{other, renamed}); got != 1 {
+		t.Fatalf("same physical USB with changed volume presentation was not restored: %d", got)
+	}
+	if got := restoredUSBSelectionIndex(&selected, []physicalTarget{renamed, renamed}); got != -1 {
+		t.Fatalf("ambiguous duplicated USB identity was restored: %d", got)
+	}
+	if got := restoredUSBSelectionIndex(&selected, []physicalTarget{other}); got != -1 {
+		t.Fatalf("removed USB remained selected: %d", got)
+	}
+}
+
+func TestUSBSelectionRejectsDriftAndUnprovableIdentity(t *testing.T) {
+	selected := physicalTarget{
+		DiskNumber: 2, DeviceSerial: "SERIAL-ONE",
+		PhysicalDiskBytes: 8 << 30, PrototypeSafe: true,
+		ConfirmationToken: strings.Repeat("a", 64),
+	}
+	mutations := []struct {
+		name string
+		modify func(*physicalTarget)
+	}{
+		{"disk-number", func(target *physicalTarget) { target.DiskNumber++ }},
+		{"size", func(target *physicalTarget) { target.PhysicalDiskBytes++ }},
+		{"serial", func(target *physicalTarget) { target.DeviceSerial = "SWAPPED" }},
+		{"token", func(target *physicalTarget) { target.ConfirmationToken = strings.Repeat("b", 64) }},
+		{"system-disk", func(target *physicalTarget) { target.SystemDisk = true }},
+		{"unsafe", func(target *physicalTarget) { target.PrototypeSafe = false }},
+	}
+	for _, tc := range mutations {
+		t.Run(tc.name, func(t *testing.T) {
+			current := selected
+			tc.modify(&current)
+			if got := restoredUSBSelectionIndex(&selected, []physicalTarget{current}); got != -1 {
+				t.Fatalf("identity changed but remained selected: %d", got)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name string
+		change func(*physicalTarget)
+	}{
+		{"serial-missing", func(target *physicalTarget) { target.DeviceSerial = "" }},
+		{"token-not-hex", func(target *physicalTarget) { target.ConfirmationToken = strings.Repeat("z", 64) }},
+		{"token-uppercase", func(target *physicalTarget) { target.ConfirmationToken = strings.Repeat("A", 64) }},
+		{"previous-system-disk", func(target *physicalTarget) { target.SystemDisk = true }},
+		{"previous-unsafe", func(target *physicalTarget) { target.PrototypeSafe = false }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := selected
+			tc.change(&previous)
+			if got := restoredUSBSelectionIndex(&previous, []physicalTarget{previous}); got != -1 {
+				t.Fatalf("unprovable previous selection was restored: %d", got)
+			}
+		})
+	}
+}
