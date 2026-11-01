@@ -17,6 +17,7 @@ import (
 	"time"
 
 	creatorcore "github.com/ordaxsystems/ordax-creator/core"
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const (
@@ -227,7 +228,7 @@ func reusePortablePayloadArtifact(versionsRoot string, binding PortablePayloadAr
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != binding.SizeBytes {
 			continue
 		}
-		digest, size, err := fileDigest(sourcePath)
+		digest, size, err := safefile.DigestBoundRegular(sourcePath, binding.SizeBytes)
 		if err != nil || digest != binding.SHA256 || size != binding.SizeBytes {
 			continue
 		}
@@ -310,14 +311,9 @@ func verifyPortablePayloadInstalled(directory string, manifest Manifest) error {
 		return err
 	}
 	receiptPath := filepath.Join(directory, portablePayloadReceiptName)
-	info, err := os.Lstat(receiptPath)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("Portable payload receipt is not a regular non-symlink file")
-	}
-	actualReceipt, err := os.ReadFile(receiptPath)
+	// The signed canonical receipt determines an exact bound before any
+	// offline read. Recheck the same open file identity through safefile.
+	actualReceipt, err := safefile.ReadBoundedRegular(receiptPath, int64(len(expectedReceipt)))
 	if err != nil {
 		return err
 	}
@@ -326,7 +322,7 @@ func verifyPortablePayloadInstalled(directory string, manifest Manifest) error {
 	}
 
 	sourceRoot := filepath.Join(directory, portablePayloadDirectory)
-	info, err = os.Lstat(sourceRoot)
+	info, err := os.Lstat(sourceRoot)
 	if err != nil {
 		return err
 	}

@@ -226,27 +226,6 @@ func componentRoot(root string) (string, error) {
 	return filepath.Join(home, ".ordax-creator-official-components"), nil
 }
 
-func fileDigest(path string) (string, int64, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return "", 0, err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return "", 0, errors.New("Creator component is not a regular non-symlink file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer file.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, file)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), n, nil
-}
-
 func VerifyInstalled(directory string, manifest Manifest) error {
 	if err := validateManifest(manifest); err != nil {
 		return err
@@ -262,7 +241,7 @@ func VerifyInstalled(directory string, manifest Manifest) error {
 	if len(entries) != 1 || entries[0].Name() != expectedFile {
 		return errors.New("Creator component directory must contain exactly the bound inspection executable")
 	}
-	actualHash, actualSize, err := fileDigest(filepath.Join(directory, expectedFile))
+	actualHash, actualSize, err := safefile.DigestBoundRegular(filepath.Join(directory, expectedFile), manifest.File.Size)
 	if err != nil {
 		return err
 	}

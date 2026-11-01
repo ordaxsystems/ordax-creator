@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const (
@@ -263,34 +264,6 @@ func safeRelative(name string) bool {
 	return clean == filepath.FromSlash(name)
 }
 
-func fileDigest(path string) (string, int64, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return "", 0, err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return "", 0, errors.New("bound file is not a regular non-symlink file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil {
-		return "", 0, err
-	}
-	if !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
-		return "", 0, errors.New("bound file identity changed while opening")
-	}
-	h := sha256.New()
-	n, err := io.Copy(h, file)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), n, nil
-}
-
 func verifyWriterInstalled(directory string, manifest Manifest) error {
 	root, err := os.Lstat(directory)
 	if err != nil {
@@ -336,7 +309,7 @@ func verifyWriterInstalled(directory string, manifest Manifest) error {
 		if info.Size() != binding.Size {
 			return fmt.Errorf("bound physical file changed: %s", binding.Name)
 		}
-		actualHash, actualSize, err := fileDigest(path)
+		actualHash, actualSize, err := safefile.DigestBoundRegular(path, binding.Size)
 		if err != nil {
 			return fmt.Errorf("verify %s: %w", binding.Name, err)
 		}

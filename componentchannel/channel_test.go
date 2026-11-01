@@ -381,3 +381,19 @@ func TestSignedComponentRejectsSameCommitManifestRebinding(t *testing.T) {
 		})
 	}
 }
+
+func TestOfflineSignedComponentRejectsOversizedExecutableBeforeHashing(t *testing.T) {
+	root := t.TempDir()
+	body := []byte("signed-inspection-executable")
+	manifest := installManifest(t, root, validManifest(), body)
+	directory := filepath.Join(root, "versions", manifest.SourceCommit)
+	if err := VerifyInstalled(directory, manifest); err != nil {
+		t.Fatalf("valid component rejected: %v", err)
+	}
+	if err := os.Truncate(filepath.Join(directory, expectedFile), 8<<20); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInstalled(directory, manifest); err == nil || !strings.Contains(err.Error(), "changed size") {
+		t.Fatalf("oversized signed component was accepted: %v", err)
+	}
+}
