@@ -248,3 +248,67 @@ func TestOfflinePortableReceiptRejectsOversizedCacheBeforeReading(t *testing.T) 
 		t.Fatalf("oversized portable receipt was accepted: %v", err)
 	}
 }
+
+func TestPortablePayloadSameLengthCorruptDonorFallsBackToSignedDownload(t *testing.T) {
+	root := t.TempDir()
+	manifest, bodies, previous := seedPreviousPortableVersion(t, root)
+	kernel := filepath.Join(previous, "kernel")
+	corrupted := bytes.Repeat([]byte("x"), len(bodies["kernel"]))
+	if err := os.WriteFile(kernel, corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport := &portableSourceTestTransport{bodies: bodies}
+	dest := filepath.Join(root, "candidate")
+	if err := os.Mkdir(dest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := installPortablePayload(
+		&http.Client{Transport: transport}, dest, filepath.Join(root, "versions"), manifest,
+	); err != nil {
+		t.Fatalf("same-sized donor corruption prevented authenticated recovery: %v", err)
+	}
+	if len(transport.requests) != 1 || transport.requests[0] != "kernel" {
+		t.Fatalf("same-size corrupt kernel should be downloaded once, got %v", transport.requests)
+	}
+	kernelBytes, err := os.ReadFile(filepath.Join(dest, portablePayloadDirectory, "kernel"))
+	if err != nil || !bytes.Equal(kernelBytes, bodies["kernel"]) {
+		t.Fatalf("staging retained corrupt donor bytes: err=%v", err)
+	}
+	if err := verifyPortablePayloadInstalled(dest, manifest); err != nil {
+		t.Fatalf("new candidate did not verify against signed 17-source manifest: %v", err)
+	}
+}
+
+func TestPortablePayloadSkipsCorruptDonorAndReusesNextExactSignedCopy(t *testing.T) {
+	root := t.TempDir()
+	manifest, bodies, previous := seedPreviousPortableVersion(t, root)
+	otherVersion := filepath.Join(root, "versions", strings.Repeat("b", 40), portablePayloadDirectory)
+	if err := os.MkdirAll(otherVersion, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for id, body := range bodies {
+		if err := os.WriteFile(filepath.Join(otherVersion, id), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kernel := filepath.Join(previous, "kernel")
+	if err := os.WriteFile(kernel, bytes.Repeat([]byte("x"), len(bodies["kernel"])), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport := &portableSourceTestTransport{}
+	dest := filepath.Join(root, "candidate")
+	if err := os.Mkdir(dest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := installPortablePayload(
+		&http.Client{Transport: transport}, dest, filepath.Join(root, "versions"), manifest,
+	); err != nil {
+		t.Fatalf("corrupt donor prevented reuse of another exact signed copy: %v", err)
+	}
+	if len(transport.requests) != 0 {
+		t.Fatalf("second valid signed donor should avoid network downloads: %v", transport.requests)
+	}
+	if err := verifyPortablePayloadInstalled(dest, manifest); err != nil {
+		t.Fatalf("recovered Portable candidate failed signed integrity check: %v", err)
+	}
+}
