@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ordaxsystems/ordax-creator/internal/archivebounds"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
@@ -437,9 +438,9 @@ func extractBundle(zipPath, destination string, manifest Manifest) error {
 		if item.FileInfo().IsDir() || item.FileInfo().Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("invalid file type in physical bundle: %q", item.Name)
 		}
-		total += int64(item.UncompressedSize64)
-		if total > maxExtractedBytes {
-			return errors.New("physical archive expands beyond allowed size")
+		total, err = archivebounds.Add(total, item.UncompressedSize64, maxExtractedBytes)
+		if err != nil {
+			return fmt.Errorf("physical ZIP entry %q: %w", item.Name, err)
 		}
 		reader, err := item.Open()
 		if err != nil {
@@ -451,7 +452,7 @@ func extractBundle(zipPath, destination string, manifest Manifest) error {
 			_ = reader.Close()
 			return err
 		}
-		_, copyErr := io.Copy(writer, reader)
+		_, copyErr := archivebounds.CopyExact(writer, reader, item.UncompressedSize64)
 		writeCloseErr := writer.Close()
 		readCloseErr := reader.Close()
 		if copyErr != nil {
