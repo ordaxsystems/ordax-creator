@@ -51,7 +51,7 @@ func TestPendingUpdateKeepsCurrentUntilPromotionAndPreservesPrevious(t *testing.
 		t.Fatalf("pending candidate replaced current before health-check: %+v", current)
 	}
 
-	promoted, err := PromotePending(root, pending.SourceCommit, trust, trustSHA)
+	promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestLastKnownGoodFallsBackToPreviousAfterCurrentCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	promoted, err := PromotePending(root, pending.SourceCommit, trust, trustSHA)
+	promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestNewerPendingCanRepairCorruptCurrentBytesWithoutForgettingSequence(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	promoted, err := PromotePending(root, pending.SourceCommit, trust, trustSHA)
+	promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestNewerPendingCanRepairCorruptCurrentBytesWithoutForgettingSequence(t *te
 	if !changed || repair.ReleaseSequence != 9 {
 		t.Fatalf("unexpected repair candidate: %+v changed=%v", repair, changed)
 	}
-	if _, err := PromotePending(root, repair.SourceCommit, trust, trustSHA); err != nil {
+	if _, err := PromotePending(root, repair.Manifest, trust, trustSHA); err != nil {
 		t.Fatal(err)
 	}
 	current, err := Current(root, trust, trustSHA)
@@ -267,3 +267,64 @@ func TestAcquirePendingRejectsReboundSignedReleaseWithSameSourceCommit(t *testin
 		})
 	}
 }
+
+func TestPromotePendingRequiresExactHealthCheckedSignedManifest(t *testing.T) {
+	for _, mode := range []string{"version", "release-sequence"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			trust, private, trustSHA := testTrust(t)
+			oldBody := []byte("signed-known-good-app")
+			old := validManifest(oldBody, "1111111111111111111111111111111111111111", 1)
+			installSignedBaseline(t, root, oldBody, old, signedEnvelope(t, old, private))
+
+			body := []byte("new-healthchecked-app")
+			candidate := validManifest(body, "2222222222222222222222222222222222222222", 2)
+			client := &http.Client{Transport: staticTransport{
+				envelope: signedEnvelope(t, candidate, private),
+				artifact: body,
+			}}
+			pending, changed, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA)
+			if err != nil || !changed {
+				t.Fatalf("valid candidate not staged: changed=%t err=%v", changed, err)
+			}
+
+			// Simulate a different legitimately signed envelope appearing in
+			// the pending slot after candidate A passed its health check. The
+			// executable and source commit remain exactly the same; signature,
+			// SHA-256 of the installed bytes, and rollback checks all pass.
+			swapped := candidate
+			switch mode {
+			case "version":
+				swapped.Version = "0.1.1"
+			case "release-sequence":
+				swapped.ReleaseSequence = candidate.ReleaseSequence + 1
+			}
+			if err := os.WriteFile(filepath.Join(root, pendingEnvelopeName), signedEnvelope(t, swapped, private), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := readInstalledEnvelope(root, pendingEnvelopeName, trust, trustSHA); err != nil {
+				t.Fatalf("swapped manifest must still be validly signed and locally installed: %v", err)
+			}
+			if _, err := PromotePending(root, pending.Manifest, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "health-checked candidate") {
+				t.Fatalf("signed pending manifest changed between health check and promotion: %v", err)
+			}
+			current, err := Current(root, trust, trustSHA)
+			if err != nil || current.Manifest != old {
+				t.Fatalf("known-good current was changed on failed promotion: current=%+v err=%v", current, err)
+			}
+			if _, err := Previous(root, trust, trustSHA); !os.IsNotExist(err) {
+				t.Fatalf("previous pointer unexpectedly modified: %v", err)
+			}
+			// Correct candidate can be restored and promoted without
+			// inventing a second activation path or requiring redownload.
+			if err := os.WriteFile(filepath.Join(root, pendingEnvelopeName), signedEnvelope(t, candidate, private), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			promoted, err := PromotePending(root, pending.Manifest, trust, trustSHA)
+			if err != nil || promoted.Manifest != candidate {
+				t.Fatalf("original health-checked candidate not promoted: promoted=%+v err=%v", promoted, err)
+			}
+		})
+	}
+}
+
