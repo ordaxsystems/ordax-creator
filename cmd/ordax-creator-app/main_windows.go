@@ -107,6 +107,10 @@ var (
 	stateMu      sync.Mutex
 	refreshState appRefreshState
 
+	// UI-thread-only interlock: a refresh must finish before stale USB state
+	// may enable a physical write or another discovery worker.
+	refreshInProgress bool
+
 	// UI-thread only. A refresh may preserve an explicitly selected physical
 	// USB, but no target is ever implicitly selected on first discovery.
 	pendingRefreshSelection *physicalTarget
@@ -482,6 +486,12 @@ func restoredUSBSelectionIndex(previous *physicalTarget, targets []physicalTarge
 }
 
 func renderSelectionExperience(state appRefreshState) {
+	if refreshInProgress {
+		setCreatorStatus(creatorT(msgRefreshSearching))
+		setCreatorHint(creatorT(msgRefreshHint))
+		enable(writeButton, false)
+		return
+	}
 	view := selectionExperience(state)
 	status := view.Title
 	if view.Eyebrow != "" {
@@ -509,7 +519,7 @@ func updateSelectionUI() {
 	state := refreshState
 	stateMu.Unlock()
 
-	if writeInProgress() || len(state.Targets) == 0 {
+	if refreshInProgress || writeInProgress() || len(state.Targets) == 0 {
 		return
 	}
 	resetWriteResult()
@@ -517,6 +527,9 @@ func updateSelectionUI() {
 }
 
 func renderRefresh() {
+	// Only the UI thread changes this gate, after the worker has published
+	// the new snapshot. All controls are reconciled with that snapshot below.
+	refreshInProgress = false
 	stateMu.Lock()
 	state := refreshState
 	stateMu.Unlock()
@@ -552,9 +565,10 @@ func renderRefresh() {
 }
 
 func beginRefresh() {
-	if writeInProgress() {
+	if refreshInProgress || writeInProgress() {
 		return
 	}
+	refreshInProgress = true
 	// Capture only a selection made in the existing list, before disabling
 	// controls. A fresh launch never implicitly selects a destructive target.
 	pendingRefreshSelection = nil
@@ -655,6 +669,11 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			return 0
 		}
 		if id == idWrite && notify == bnClicked {
+			// Disabled controls can still have queued WM_COMMAND messages.
+			// Never consume a stale selection during an asynchronous refresh.
+			if refreshInProgress {
+				return 0
+			}
 			writeMu.Lock()
 			terminalSuccess := !writeState.Active && writeState.Success
 			terminalError := !writeState.Active && writeState.Error != ""

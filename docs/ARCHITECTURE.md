@@ -25,6 +25,12 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 
 All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symbolic link or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
 
+## Windows refresh UI interlock
+
+The Win32 GUI has one UI-thread-owned refresh-in-progress gate. From the moment a refresh starts until its newly verified snapshot is rendered, another refresh or a physical write cannot start. USB selection and the destructive action remain disabled, including on locale changes and queued native button messages. A locale change continues to show the translated searching state rather than redisplaying stale targets. Queued progress/completion events from an earlier operation cannot reenable the previous device while the new refresh is active.
+
+This presentation-level interlock complements, but **never replaces**, the signed physical channel, device-specific confirmation and independent privileged revalidation. The Windows native smoke uses only synthetic in-memory device data and intentionally starts no discovery, update, UAC or disk I/O.
+
 ## Windows USB selection across refreshes
 
 Device discovery never implicitly selects a physical USB, even if only one target appears. The user must make an explicit selection before the GUI can expose the destructive confirmation step. A subsequent refresh may retain that explicit choice only when there is exactly one newly discovered safe target with the same non-empty device serial, disk number, physical capacity and lowercase physical confirmation token. A changed drive letter or volume label alone does not erase a provably stable choice. Missing serial, changed identity, duplicate candidates, a fatal refresh error or unready physical channel clears the selection and requires the user to choose again.

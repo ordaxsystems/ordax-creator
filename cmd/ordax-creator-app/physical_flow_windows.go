@@ -184,6 +184,11 @@ func completeWrite(err error) {
 }
 
 func renderWriteProgress() {
+	// Ignore stale queued progress after the previous operation has ended
+	// and a new discovery has locked the selection controls.
+	if refreshInProgress {
+		return
+	}
 	writeMu.Lock()
 	state := writeState
 	writeMu.Unlock()
@@ -202,6 +207,11 @@ func renderWriteProgress() {
 }
 
 func renderWriteDone() {
+	// A completion message can be queued before a new refresh starts.
+	// Do not paint the previous result or reenable old-device actions.
+	if refreshInProgress {
+		return
+	}
 	writeMu.Lock()
 	state := writeState
 	writeMu.Unlock()
@@ -246,6 +256,9 @@ func showWriteBusyMessage() {
 }
 
 func selectedPhysicalTarget() (physicalTarget, appRefreshState, error) {
+	if refreshInProgress {
+		return physicalTarget{}, appRefreshState{}, fmt.Errorf("a lista de dispositivos USB ainda está sendo atualizada")
+	}
 	stateMu.Lock()
 	state := refreshState
 	stateMu.Unlock()
@@ -264,7 +277,7 @@ func selectedPhysicalTarget() (physicalTarget, appRefreshState, error) {
 }
 
 func beginPhysicalWrite() {
-	if writeInProgress() {
+	if refreshInProgress || writeInProgress() {
 		return
 	}
 	target, state, err := selectedPhysicalTarget()
