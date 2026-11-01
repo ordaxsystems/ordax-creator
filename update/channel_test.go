@@ -352,7 +352,7 @@ func TestEnsureRejectsVersionMismatchAtIdenticalSourceCommit(t *testing.T) {
 	}))
 	defer server.Close()
 	if _, _, err := Ensure(server.Client(), root, server.URL); err == nil ||
-		!strings.Contains(err.Error(), "version differs") {
+		!strings.Contains(err.Error(), "conflicts with published source/payload") {
 		t.Fatalf("same-source conflicting product version result = %v", err)
 	}
 }
@@ -428,18 +428,23 @@ func TestEnsureReusesAttestedCacheWithoutDownloadingZIP(t *testing.T) {
 	root := t.TempDir()
 	writeAttestedPointerForTest(t,root,"")
 	m := validManifestForTest()
+	data, err := json.Marshal(m)
+	if err != nil { t.Fatal(err) }
 	var manifestRequests, payloadRequests int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		manifestRequests++
-		if err := json.NewEncoder(w).Encode(m); err != nil { t.Errorf("encode: %v",err) }
-	}))
-	defer server.Close()
-	installed, changed, err := Ensure(server.Client(),root,server.URL)
+	client := &http.Client{Transport:developmentRoundTrip(func(req *http.Request)(*http.Response,error){
+		if strings.Contains(req.URL.Path,"creator-dev-manifest.json") {
+			manifestRequests++
+			return &http.Response{StatusCode:http.StatusOK,Body:io.NopCloser(bytes.NewReader(data)),Header:make(http.Header),Request:req},nil
+		}
+		payloadRequests++
+		return nil, io.EOF
+	})}
+	installed, changed, err := Ensure(client,root,"https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/creator-dev-manifest.json")
 	if err != nil || changed || installed.SourceCommit != m.SourceCommit {
 		t.Fatalf("reuse result changed=%t commit=%q err=%v",changed,installed.SourceCommit,err)
 	}
 	if manifestRequests != 1 || payloadRequests != 0 {
-		t.Fatalf("unexpected network count manifest=%d payload=%d",manifestRequests,payloadRequests)
+		t.Fatalf("unexpected network requests manifest=%d payload=%d",manifestRequests,payloadRequests)
 	}
 }
 
