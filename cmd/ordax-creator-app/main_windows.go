@@ -107,6 +107,10 @@ var (
 	stateMu      sync.Mutex
 	refreshState appRefreshState
 
+	// UI-thread only. A refresh may preserve an explicitly selected physical
+	// USB, but no target is ever implicitly selected on first discovery.
+	pendingRefreshSelection *physicalTarget
+
 	// Display-only copy has one owner: the buffered parent painter.
 	creatorStatusText    = ""
 	creatorHintText      = ""
@@ -449,6 +453,34 @@ func selectionExperienceForState(state appRefreshState, selected bool) creatorEx
 	return creatorExperience(creatorExperienceInput{TargetCount: len(state.Targets), TargetSelected: selected, PhysicalReady: state.PhysicalReady, ErrorMessageID: errorMessageID, ErrorStepNumber: errorStep})
 }
 
+// restoredUSBSelectionIndex preserves a user's explicit selection only when
+// the refreshed device has an unambiguous, stable physical identity. Drive
+// letter and volume label may change between scans. If the device has no
+// serial, was replaced or appears twice, force deliberate reselection.
+// This is UX only: actual writing revalidates the live target independently.
+func restoredUSBSelectionIndex(previous *physicalTarget, targets []physicalTarget) int {
+	if previous == nil || previous.SystemDisk || !previous.PrototypeSafe ||
+		strings.TrimSpace(previous.DeviceSerial) == "" ||
+		!validLowerHexString(previous.ConfirmationToken, 64) {
+		return -1
+	}
+	found := -1
+	for index, target := range targets {
+		if target.SystemDisk || !target.PrototypeSafe ||
+			target.DiskNumber != previous.DiskNumber ||
+			target.PhysicalDiskBytes != previous.PhysicalDiskBytes ||
+			target.DeviceSerial != previous.DeviceSerial ||
+			target.ConfirmationToken != previous.ConfirmationToken {
+			continue
+		}
+		if found >= 0 {
+			return -1
+		}
+		found = index
+	}
+	return found
+}
+
 func renderSelectionExperience(state appRefreshState) {
 	view := selectionExperience(state)
 	status := view.Title
@@ -489,13 +521,18 @@ func renderRefresh() {
 	state := refreshState
 	stateMu.Unlock()
 
+	selection := -1
+	if state.Error == "" && state.PhysicalReady {
+		selection = restoredUSBSelectionIndex(pendingRefreshSelection, state.Targets)
+	}
+	pendingRefreshSelection = nil
 	send(deviceCombo, cbResetContent, 0, 0)
 	for _, target := range state.Targets {
 		label := targetLabel(target)
 		send(deviceCombo, cbAddString, 0, uintptr(unsafe.Pointer(utf16Ptr(label))))
 	}
-	if len(state.Targets) == 1 {
-		send(deviceCombo, cbSetCurSel, 0, 0)
+	if selection >= 0 {
+		send(deviceCombo, cbSetCurSel, uintptr(selection), 0)
 	}
 
 	if state.Version != "" {
@@ -517,6 +554,16 @@ func renderRefresh() {
 func beginRefresh() {
 	if writeInProgress() {
 		return
+	}
+	// Capture only a selection made in the existing list, before disabling
+	// controls. A fresh launch never implicitly selects a destructive target.
+	pendingRefreshSelection = nil
+	stateMu.Lock()
+	previous := refreshState
+	stateMu.Unlock()
+	if index := selectedTargetIndex(); index >= 0 && index < len(previous.Targets) {
+		selected := previous.Targets[index]
+		pendingRefreshSelection = &selected
 	}
 	resetWriteResult()
 	setCreatorStatus(creatorT(msgRefreshSearching))
