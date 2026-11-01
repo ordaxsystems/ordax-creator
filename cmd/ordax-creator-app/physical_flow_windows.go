@@ -192,6 +192,11 @@ func renderWriteProgress() {
 	writeMu.Lock()
 	state := writeState
 	writeMu.Unlock()
+	if !state.Active {
+		// A WM_APP progress message may outlive its corresponding worker;
+		// do not replace a terminal result with old in-progress controls.
+		return
+	}
 	setCreatorStatus(state.Status)
 	setCreatorHint(state.Hint)
 	if state.Determinate {
@@ -215,6 +220,10 @@ func renderWriteDone() {
 	writeMu.Lock()
 	state := writeState
 	writeMu.Unlock()
+	if state.Active || (!state.Success && state.Error == "") {
+		// Ignore stale completion events while a newer operation is active.
+		return
+	}
 
 	setCreatorStatus(state.Status)
 	setCreatorHint(state.Hint)
@@ -418,10 +427,10 @@ func runElevatedAndWait(executable, directory string, args []string, diagnosticP
 
 	updateWriteProgress(creatorT(msgCreatingEyebrow), creatorT(msgCreatingTitle)+" "+creatorT(msgCreatingDetail))
 
-	lastProgress := ""
+	var progress physicalProgressTracker
 	for {
 		wait, _, waitErr := procWaitForSingleObject.Call(info.Process, progressPollMillis)
-		applyPhysicalProgressSnapshot(progressPath, &lastProgress)
+		applyPhysicalProgressSnapshot(progressPath, &progress)
 		if wait == waitObject0 {
 			break
 		}
@@ -430,7 +439,7 @@ func runElevatedAndWait(executable, directory string, args []string, diagnosticP
 		}
 		return fmt.Errorf("falha aguardando a gravação elevada: %v", waitErr)
 	}
-	applyPhysicalProgressSnapshot(progressPath, &lastProgress)
+	applyPhysicalProgressSnapshot(progressPath, &progress)
 
 	var exitCode uint32
 	ok, _, exitErr := procGetExitCodeProcess.Call(info.Process, uintptr(unsafe.Pointer(&exitCode)))
