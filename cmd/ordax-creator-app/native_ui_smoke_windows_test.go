@@ -147,5 +147,41 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
     }
     t.Log("Native update controls reflect retry, current and available states in both locales without external I/O")
 
+    // Delayed WM_APP_PROGRESS and WM_APP_DONE can be delivered after the
+    // worker has transitioned to a terminal state or a new active run.
+    // Test the actual Win32 rendering guards with synthetic state only.
+    writeMu.Lock()
+    savedWriteState := writeState
+    writeState = physicalWriteState{Success: true, Status: "finished"}
+    writeMu.Unlock()
+    savedStatus := creatorStatusText
+    defer func() {
+        writeMu.Lock()
+        writeState = savedWriteState
+        writeMu.Unlock()
+        setCreatorStatus(savedStatus)
+    }()
+    setCreatorStatus("terminal status retained")
+    enable(writeButton, true)
+    renderWriteProgress()
+    if creatorStatusText != "terminal status retained" {
+        t.Fatal("queued progress overwrote a terminal UI result")
+    }
+    enabled, _, _ := user32.NewProc("IsWindowEnabled").Call(writeButton)
+    if enabled == 0 {
+        t.Fatal("queued progress disabled the final Finish action")
+    }
+
+    writeMu.Lock()
+    writeState = physicalWriteState{Active: true, Status: "writing in progress"}
+    writeMu.Unlock()
+    setCreatorStatus("active status retained")
+    renderWriteDone()
+    if creatorStatusText != "active status retained" {
+        t.Fatal("queued completion overwrote an active physical run")
+    }
+    t.Log("Delayed native progress and completion messages cannot replace another lifecycle state")
+
+
 
 }

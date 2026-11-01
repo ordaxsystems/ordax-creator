@@ -209,3 +209,93 @@ func TestReadPhysicalProgressRejectsIncoherentByteCounters(t *testing.T) {
 		})
 	}
 }
+
+
+func TestPhysicalProgressTrackerPreservesPhaseAndCounterMonotonicity(t *testing.T) {
+	var tracker physicalProgressTracker
+	snapshot := func(phase string, completed, total int64) physicalProgressDocument {
+		return physicalProgressDocument{
+			Schema: physicalProgressSchema, Phase: phase,
+			CompletedBytes: completed, TotalBytes: total,
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		doc physicalProgressDocument
+		accept bool
+		percent int
+	}{
+		{"starting", snapshot("starting", 0, 0), true, 2},
+		{"target", snapshot("revalidating-target", 0, 0), true, 5},
+		{"writing-start", snapshot("writing", 0, 100), true, 15},
+		{"writing-middle", snapshot("writing", 50, 100), true, 37},
+		{"duplicate", snapshot("writing", 50, 100), false, 0},
+		{"older-same-stage", snapshot("writing", 40, 100), false, 0},
+		{"changed-total-same-stage", snapshot("writing", 80, 200), false, 0},
+		{"older-phase-even-if-higher-bytes", snapshot("validating-image", 100, 100), false, 0},
+		{"writing-complete", snapshot("writing", 100, 100), true, 60},
+		{"flushing", snapshot("flushing", 0, 0), true, 62},
+		{"late-writing", snapshot("writing", 100, 100), false, 0},
+		{"verifying-start", snapshot("verifying", 0, 100), true, 62},
+		{"late-flush-at-same-percent", snapshot("flushing", 0, 0), false, 0},
+		{"verifying-middle", snapshot("verifying", 50, 100), true, 76},
+		{"verifying-backwards", snapshot("verifying", 49, 100), false, 0},
+		{"verified", snapshot("verified", 100, 100), true, 92},
+		{"data-formatting", snapshot("formatting-data", 0, 0), true, 96},
+		{"late-verification", snapshot("verifying", 100, 100), false, 0},
+		{"child-claims-complete-before-exit", snapshot("complete", 1, 1), false, 0},
+		{"unrecognized-phase", snapshot("unknown", 0, 0), false, 0},
+		{"not-even-late-complete", snapshot("complete", 1, 1), false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, percent, ok := tracker.accept(tc.doc)
+			if ok != tc.accept || (ok && percent != tc.percent) {
+				t.Fatalf("progress tracker accept=%t percent=%d; want accept=%t percent=%d",
+					ok, percent, tc.accept, tc.percent)
+			}
+			if tracker.lastPercent > 96 {
+				t.Fatalf("telemetry falsely claimed terminal success: %d%%", tracker.lastPercent)
+			}
+		})
+	}
+}
+
+func TestPhysicalProgressTrackerRejectsInvalidAndUnownedSnapshots(t *testing.T) {
+	var tracker physicalProgressTracker
+	for _, tc := range []physicalProgressDocument{
+		{Schema: physicalProgressSchema, Phase: "writing", CompletedBytes: -1, TotalBytes: 100},
+		{Schema: physicalProgressSchema, Phase: "writing", CompletedBytes: 101, TotalBytes: 100},
+		{Schema: physicalProgressSchema, Phase: "writing", CompletedBytes: 1, TotalBytes: 0},
+		{Schema: physicalProgressSchema, Phase: "complete", CompletedBytes: 1, TotalBytes: 1},
+	} {
+		if _, _, _, ok := tracker.accept(tc); ok {
+			t.Fatalf("untrusted progress passed: %+v", tc)
+		}
+	}
+	if tracker.lastKey != "" || tracker.lastStage != 0 || tracker.lastPercent != 0 {
+		t.Fatalf("rejected progress mutated accepted state: %+v", tracker)
+	}
+	if _, _, _, ok := (*physicalProgressTracker)(nil).accept(physicalProgressDocument{Phase: "writing", TotalBytes: 10}); ok {
+		t.Fatal("missing progress tracker accepted untracked evidence")
+	}
+}
+
+func TestPhysicalProgressTrackerProtectsFailedElevatedExitFromPrematureCompletion(t *testing.T) {
+	var tracker physicalProgressTracker
+	// The helper may have written a complete phase immediately before a
+	// nonzero exit status. The last visible progress must remain nonterminal;
+	// success is established separately by runElevatedAndWait/completeWrite.
+	valid := physicalProgressDocument{Schema: physicalProgressSchema, Phase: "verified"}
+	if _, _, percent, ok := tracker.accept(valid); !ok || percent != 92 {
+		t.Fatalf("preterminal verified snapshot rejected: percent=%d accepted=%t", percent, ok)
+	}
+	terminal := physicalProgressDocument{
+		Schema: physicalProgressSchema, Phase: "complete", CompletedBytes: 1, TotalBytes: 1,
+	}
+	if _, _, percent, ok := tracker.accept(terminal); ok || percent != 0 {
+		t.Fatalf("unsigned terminal evidence reached the UI: percent=%d accepted=%t", percent, ok)
+	}
+	if tracker.lastStage != 10 || tracker.lastPercent != 92 {
+		t.Fatalf("terminal snapshot changed UI before process exit: %+v", tracker)
+	}
+}

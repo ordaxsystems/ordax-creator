@@ -72,7 +72,15 @@ func physicalProgressPercent(completed, total int64, start, span int) int {
 	return start + int(scaled)
 }
 
+// physicalProgressPresentation is the display adapter used by the existing
+// localized regression tests. Stage order has one source in the detailed
+// presentation below, shared with the live progress tracker.
 func physicalProgressPresentation(document physicalProgressDocument) (status, hint string, percent int, ok bool) {
+	status, hint, percent, _, ok = physicalProgressPresentationWithStage(document)
+	return status, hint, percent, ok
+}
+
+func physicalProgressPresentationWithStage(document physicalProgressDocument) (status, hint string, percent, stage int, ok bool) {
 	ratioPercent := func(start, span int) int {
 		return physicalProgressPercent(document.CompletedBytes, document.TotalBytes, start, span)
 	}
@@ -88,50 +96,83 @@ func physicalProgressPresentation(document physicalProgressDocument) (status, hi
 	}
 	switch document.Phase {
 	case "starting":
-		return creatorT(msgProgressStartingStatus), creatorT(msgProgressStartingHint), 2, true
+		return creatorT(msgProgressStartingStatus), creatorT(msgProgressStartingHint), 2, 1, true
 	case "checking-elevation":
-		return creatorT(msgProgressElevationStatus), creatorT(msgProgressElevationHint), 3, true
+		return creatorT(msgProgressElevationStatus), creatorT(msgProgressElevationHint), 3, 2, true
 	case "revalidating-target":
-		return creatorT(msgProgressTargetStatus), creatorT(msgProgressTargetHint), 5, true
+		return creatorT(msgProgressTargetStatus), creatorT(msgProgressTargetHint), 5, 3, true
 	case "validating-image":
-		return creatorT(msgProgressImageStatus), byteProgress(msgProgressValidationBytes), ratioPercent(5, 7), true
+		return creatorT(msgProgressImageStatus), byteProgress(msgProgressValidationBytes), ratioPercent(5, 7), 4, true
 	case "planning-write":
-		return creatorT(msgProgressPlanningStatus), creatorT(msgProgressPlanningHint), 13, true
+		return creatorT(msgProgressPlanningStatus), creatorT(msgProgressPlanningHint), 13, 5, true
 	case "locking-target":
-		return creatorT(msgProgressLockStatus), creatorT(msgProgressLockHint), 15, true
+		return creatorT(msgProgressLockStatus), creatorT(msgProgressLockHint), 15, 6, true
 	case "writing":
-		return creatorT(msgProgressWritingStatus), byteProgress(msgProgressWritingBytes), ratioPercent(15, 45), true
+		return creatorT(msgProgressWritingStatus), byteProgress(msgProgressWritingBytes), ratioPercent(15, 45), 7, true
 	case "flushing":
-		return creatorT(msgProgressFlushStatus), creatorT(msgProgressFlushHint), 62, true
+		return creatorT(msgProgressFlushStatus), creatorT(msgProgressFlushHint), 62, 8, true
 	case "verifying":
-		return creatorT(msgProgressVerifyingStatus), byteProgress(msgProgressVerifyingBytes), ratioPercent(62, 28), true
+		return creatorT(msgProgressVerifyingStatus), byteProgress(msgProgressVerifyingBytes), ratioPercent(62, 28), 9, true
 	case "verified":
-		return creatorT(msgProgressVerifiedStatus), creatorT(msgProgressVerifiedHint), 92, true
+		return creatorT(msgProgressVerifiedStatus), creatorT(msgProgressVerifiedHint), 92, 10, true
 	case "formatting-data":
-		return creatorT(msgProgressDataStatus), creatorT(msgProgressDataHint), 96, true
+		return creatorT(msgProgressDataStatus), creatorT(msgProgressDataHint), 96, 11, true
 	case "complete":
-		return creatorT(msgProgressCompleteStatus), creatorT(msgProgressCompleteHint), 100, true
+		return creatorT(msgProgressCompleteStatus), creatorT(msgProgressCompleteHint), 100, 12, true
 	default:
-		return "", "", 0, false
+		return "", "", 0, 0, false
 	}
 }
 
-func applyPhysicalProgressSnapshot(path string, lastKey *string) {
+// The helper overwrites the JSON progress sidecar while the UI polls it.
+// A delayed, replayed or regressive snapshot must not rewind a later phase.
+// Only the actual elevated process exit code can establish terminal success.
+type physicalProgressTracker struct {
+	lastKey        string
+	lastStage      int
+	lastCompleted  int64
+	lastTotal      int64
+	lastPercent    int
+}
+
+func (tracker *physicalProgressTracker) accept(document physicalProgressDocument) (status, hint string, percent int, ok bool) {
+	if tracker == nil {
+		return "", "", 0, false
+	}
+	status, hint, percent, stage, recognized := physicalProgressPresentationWithStage(document)
+	if !recognized || document.Phase == "complete" {
+		// The child can still fail after writing its final sidecar entry.
+		// Do not show 100% or "complete" before its verified zero exit.
+		return "", "", 0, false
+	}
+	if document.CompletedBytes < 0 || document.TotalBytes < 0 || document.CompletedBytes > document.TotalBytes {
+		return "", "", 0, false
+	}
+	key := fmt.Sprintf("%s:%d:%d", document.Phase, document.CompletedBytes, document.TotalBytes)
+	if key == tracker.lastKey || stage < tracker.lastStage || percent < tracker.lastPercent {
+		return "", "", 0, false
+	}
+	if stage == tracker.lastStage &&
+		(document.CompletedBytes < tracker.lastCompleted || document.TotalBytes != tracker.lastTotal) {
+		return "", "", 0, false
+	}
+	tracker.lastKey = key
+	tracker.lastStage = stage
+	tracker.lastCompleted = document.CompletedBytes
+	tracker.lastTotal = document.TotalBytes
+	tracker.lastPercent = percent
+	return status, hint, percent, true
+}
+
+func applyPhysicalProgressSnapshot(path string, tracker *physicalProgressTracker) {
 	document, err := readPhysicalProgress(path)
 	if err != nil {
 		return
 	}
-	key := fmt.Sprintf("%s:%d:%d", document.Phase, document.CompletedBytes, document.TotalBytes)
-	if lastKey != nil && *lastKey == key {
-		return
-	}
-	status, hint, percent, ok := physicalProgressPresentation(document)
+	status, hint, percent, ok := tracker.accept(document)
 	if !ok {
 		return
 	}
 	status, hint = guidedPhysicalProgressCopy(status, hint)
-	if lastKey != nil {
-		*lastKey = key
-	}
 	updateWritePercentage(status, hint, percent)
 }
