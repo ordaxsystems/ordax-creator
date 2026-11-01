@@ -1,27 +1,31 @@
-# OrdaX Creator — Architecture and security boundary
+# OrdaX Creator — canonical architecture and safety boundaries
 
-Status: TARGET ARCHITECTURE; not yet migrated or released.
+**Implementation status:** C5/C6 source extraction and OS consumer cutover are complete (2026-10-24). Independent Creator Core and Windows application live in this repository. Distribution as a publicly signed release and authorization to write a physical USB are **separate, uncompleted OS publisher gates**. See [docs/MIGRATION.md](MIGRATION.md) for the migration execution ledger, [docs/PROVENANCE.md](PROVENANCE.md) for immutable history receipts and [AGENTS.md](../AGENTS.md) for agent constraints.
 
-Creator is a standalone Windows-first verified-media preparation application. Its single host-neutral Creator Core is reusable from the future OrdaX Desktop without implementing a second flasher. The pre-existing code in ordax-os/tools/creator is the sole extraction source until verified cutover.
+## Single source of truth by owner
 
-## Execution ownership
-- Creator: graphical shell and localization, target discovery/selection, source acquisition, verified signed cache, host-neutral plan and validation, target-specific explicit confirmation, narrow Windows elevated adapter, post-write verification, app/component/physical consumer channels.
-- OS: Base, kernel, initramfs, bootstrap, OS release bytes, machine-readable boot/media/storage contracts, release trust anchor, producer/publisher and physical promotion authorization.
-- All OS contract/artifact inputs must be immutable, source-revision pinned and SHA-256/size checked. A downloaded file is a verified consumer copy, never a new source of truth.
-- Do not duplicate the 17-source inventory, 39-operation planner, media geometry, signature policy, updater, physical authorization, or actual OS release generator.
+| Concern | Sole authority |
+| --- | --- |
+| Creator Go Core, safe Windows UI, device adapters, verified-source consumers and narrowly gated physical writer | `ordaxsystems/ordax-creator` |
+| OS Base/kernel/boot, production media and storage geometry, physical release authorization, published artifacts, signer/trust roots | `ordaxsystems/ordax-os` |
+| Immutable OS source/contract binding used in Creator CI | `.github/ordax-os-contracts.lock.json`, pointing to the exact upstream OS commit (read-only test input, not duplicated contracts) |
+| Product version | `version.json` (the exact Creator Git SHA separately identifies each build) |
 
-## Security boundary
-1. Acquire and validate the signed release envelope and version/source commitment.
-2. Validate exactly the canonical 17 flat regular non-symlink files with immutable size/SHA-256 bindings.
-3. Enumerate supported removable targets, exclude system/internal disks and detect device identity/capacity/serial changes.
-4. Prepare Core's exact plan and target-specific destructive confirmation; require explicit human consent and Windows elevation independently.
-5. Elevated writer reopens/locks verified source bytes and revalidates target before any physical writes.
-6. Flush, independently read back 17 artifacts and final geometry/filesystems/capacity; fail closed on partial results.
+The OS's verified release consumers bind an immutable Creator source commit and tree; the OS may produce/publish outputs but must not mirror the Go Core, create a second image builder or maintain a parallel 17-source inventory or release signer.
 
-Code/build tests are NON-DESTRUCTIVE and cannot grant 4-6. Public signing status and current OS promotion gates remain independent.
+## Runtime boundaries
 
-## Migration layout
-- Existing Core, cmd, host, appchannel, componentchannel, physicalchannel, internal/atomicfile and update packages become Creator-owned.
-- Split proof scripts and root Python helpers by actual producer/consumer behavior; retain OS publisher and source-authorized signing scripts in OS.
-- First import is quarantined in a migration-only branch; selected implementation moves to canonical paths only after classification and Go module/import rewriting.
-- The OS consumes a tagged or SHA-bound released Creator capability; no permanent mirrored sources inside the OS.
+1. **Core and UI:** `core/`, `cmd/ordax-creator-app/` and `host/` implement the single source of target selection, plans and readback. Windows device identity, system-disk exclusion, serial/capacity revalidation, confirmation and UAC remain separate fail-closed gates.
+2. **Official signed consumer channels:** `appchannel/`, `componentchannel/` and `physicalchannel/` verify their purpose-specific signed envelopes, the canonical publisher trust binding, file size and SHA-256, and rollback protections before accepting distribution. A development build with unresolved trust must not silently promote a signed or physical capability.
+3. **Development-only updater:** `update/` consumes the OS-owned `creator-dev` manifest and a size/SHA-256-bound ZIP. It supports read-only unprivileged inspection, uses `internal/atomicfile/` for its installation pointer and rejects unsafe archive paths/slot references. This **unsigned** channel is not a substitute for signed release or a hardware-writing authorization.
+4. **Physical writer:** the narrow Windows RAW backend is isolated behind an explicit build tag, authorized publisher binding and independent device-specific consent. Ordinary Creator GUI/CLI binaries and CI candidates do not include an authorized RAW writer.
+5. **OS integration:** `ordax-os` owns the authoritative media producers, boot proof, signing and promotion policy. Its existing consumers reference the independent Creator source; there is no embedded duplicate Creator Go implementation in the OS after C6.
+
+## Evidence and release gates
+
+- Core/Go vet, immutable read-only contract integration, real Win32 UI smoke, unsafe-target negative tests, repeatable unsigned ZIP builds, and synthetic/disposable file tests are non-destructive engineering evidence.
+- CI artifacts must display their Creator commit and explicit **UNSIGNED/READONLY** status. They are not Stable artifacts, signed releases or proof of physical USB writing.
+- The official publisher must separately complete source and signature verification, Authenticode/RFC3161 custody, signed channels, target-specific authorization and physical readback proof. The Creator repository must not create another signer, trust root, media producer or consent authority.
+- No test, document or merge here grants the right to enumerate, repartition, eject, lock or write a real device. Device-specific physical authorization follows the OS-owned procedure in [AGENTS.md](../AGENTS.md).
+
+**Current status authority:** [docs/MIGRATION.md](MIGRATION.md) records historical cutover evidence; [issue #5](https://github.com/ordaxsystems/ordax-creator/issues/5) tracks only outstanding distribution/physical proof, not a second architecture.
