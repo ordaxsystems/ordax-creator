@@ -502,3 +502,68 @@ func TestEnsureMigratesLegacyCacheOnlyAfterVerifiedZIPComparison(t *testing.T) {
 		t.Fatal("tampered existing version slot silently accepted")
 	}
 }
+
+func TestCurrentRejectsEmptyDirectoryAndSparseDevelopmentPointers(t *testing.T) {
+	for _, mode := range []string{"empty", "directory", "sparse"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "current.json")
+			switch mode {
+			case "empty":
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "directory":
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			case "sparse":
+				if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Truncate(path, maxInstalledPointerBytes+1); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := Current(root); err == nil {
+				t.Fatalf("unsafe development pointer type %s accepted", mode)
+			}
+		})
+	}
+}
+
+func TestDevelopmentInventoryPreservesEmptyFilesAndRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	for name, body := range map[string][]byte{
+		"nonempty.dat": []byte("development-cache"),
+		"empty.dat": nil,
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := installedFileInventory(root)
+	if err != nil || len(files) != 2 {
+		t.Fatalf("development cache inventory rejected empty file: files=%+v err=%v", files, err)
+	}
+	found := false
+	for _, file := range files {
+		if file.Path == "empty.dat" {
+			sum := sha256.Sum256(nil)
+			if file.Size != 0 || file.SHA256 != hex.EncodeToString(sum[:]) {
+				t.Fatalf("empty cache receipt changed: %+v", file)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("empty file was silently omitted from cache receipt")
+	}
+	link := filepath.Join(root, "linked.dat")
+	if err := os.Symlink(filepath.Join(root, "nonempty.dat"), link); err != nil {
+		t.Skipf("symlinks unavailable on host: %v", err)
+	}
+	if _, err := installedFileInventory(root); err == nil {
+		t.Fatal("symlinked development cache file accepted in receipt")
+	}
+}
