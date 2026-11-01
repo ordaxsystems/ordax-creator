@@ -271,7 +271,7 @@ func ownerUpdateAction(state updateUIState) (creatorMessageID, bool) {
 // physical write or USB refresh. The result remains in the button state so
 // the user can review or recheck when the system is idle.
 func ownerUpdateMayShowDialog(state updateUIState, writing, refreshing bool) bool {
-	return state.Manual && !state.Checking && !writing && !refreshing
+	return state.Manual && !state.Checking && (state.Checked || state.Error != "") && !writing && !refreshing
 }
 
 func renderUpdateUI() {
