@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,11 @@ type portableWindowsRuntime struct {
 	roots   map[string]string
 	synced  map[string]bool
 	report  func(PhysicalApplyProgress)
+	// Telemetry only; derived from the already authorized Core application
+	// plan. Neither these counters nor callback outcomes control disk I/O.
+	totalProgressBytes int64
+	copiedProgressBytes int64
+	readbackProgressBytes int64
 }
 
 type PortablePhysicalApplyResult struct {
@@ -106,6 +112,34 @@ func (r *portableWindowsRuntime) progress(phase string, done, total int64) {
 	if r.report != nil {
 		r.report(PhysicalApplyProgress{Phase: phase, CompletedBytes: done, TotalBytes: total})
 	}
+}
+
+// Derive the total from Core's 39-operation plan rather than keeping a
+// second manifest or artifact list. Unrepresentable totals degrade to
+// phase-only progress without ever denying an authorized operation.
+func portableArtifactProgressTotal(plan creatorcore.PortableApplicationPlan) int64 {
+	var total uint64
+	for _, operation := range plan.Operations {
+		if operation.Kind != "materialize-artifact" {
+			continue
+		}
+		if operation.SizeBytes == 0 || operation.SizeBytes > uint64(math.MaxInt64)-total {
+			return 0
+		}
+		total += operation.SizeBytes
+	}
+	return int64(total)
+}
+
+func (r *portableWindowsRuntime) progressArtifactCompleted(phase string, completed *int64, size uint64) {
+	if r.totalProgressBytes <= 0 {
+		r.progress(phase, 0, 0)
+		return
+	}
+	if size <= uint64(r.totalProgressBytes-*completed) {
+		*completed += int64(size)
+	}
+	r.progress(phase, *completed, r.totalProgressBytes)
 }
 
 func portablePartitionBytes(p creatorcore.PortableApplicationPartition) (uint64, uint64, error) {
@@ -192,6 +226,7 @@ func (r *portableWindowsRuntime) Format(p creatorcore.PortableApplicationPartiti
 	off, size, err := portablePartitionBytes(p); if err != nil { return err }
 	fs := map[string]string{"fat32":"FAT32", "exfat":"exFAT"}[p.Filesystem]
 	if fs == "" { return fmt.Errorf("unsupported Portable filesystem %q", p.Filesystem) }
+	r.progress("formatting-portable", 0, 0)
 	script := fmt.Sprintf(`
 $ErrorActionPreference='Stop'
 $d=%d; $n=%d; $off=[UInt64]%d; $size=[UInt64]%d
@@ -267,6 +302,7 @@ func portableDestination(root, target string) (string, error) {
 }
 
 func (r *portableWindowsRuntime) Materialize(op creatorcore.PortableApplicationOperation, source creatorcore.PortableApplicationSource) error {
+	r.progress("materializing-portable", r.copiedProgressBytes, r.totalProgressBytes)
 	if err := revalidatePortableTarget(r.target); err != nil { return err }
 	h, ok := r.sources[source.ArtifactID]
 	if !ok || h.core != source { return fmt.Errorf("source %q is not locked", source.ArtifactID) }
@@ -289,15 +325,18 @@ func (r *portableWindowsRuntime) Materialize(op creatorcore.PortableApplicationO
 	if err := dst.Close(); err != nil { return err }
 	remove=false
 	r.synced[op.ArtifactID]=true
+	r.progressArtifactCompleted("materializing-portable", &r.copiedProgressBytes, source.SizeBytes)
 	return nil
 }
 
 func (r *portableWindowsRuntime) Flush() error {
+	r.progress("flushing-portable", 0, 0)
 	if len(r.synced) != 17 { return fmt.Errorf("Portable flush before all 17 artifacts were synced: %d", len(r.synced)) }
 	return nil
 }
 
 func (r *portableWindowsRuntime) Readback(op creatorcore.PortableApplicationOperation) error {
+	r.progress("verifying-portable", r.readbackProgressBytes, r.totalProgressBytes)
 	if err := revalidatePortableTarget(r.target); err != nil { return err }
 	path, err := portableDestination(r.roots[op.Partition], op.TargetPath); if err != nil { return err }
 	info, err := os.Lstat(path)
@@ -311,12 +350,14 @@ func (r *portableWindowsRuntime) Readback(op creatorcore.PortableApplicationOper
 	if err != nil || uint64(n) != op.SizeBytes || hex.EncodeToString(hash.Sum(nil)) != op.SHA256 {
 		return fmt.Errorf("readback SHA-256 failed for %q", op.ArtifactID)
 	}
+	r.progressArtifactCompleted("verifying-portable", &r.readbackProgressBytes, op.SizeBytes)
 	return nil
 }
 
 func (r *portableWindowsRuntime) VerifyLayout(parts []creatorcore.PortableApplicationPartition, targetBytes uint64) error {
 	if len(parts)!=2 || targetBytes!=r.target.PhysicalDiskBytes { return errors.New("invalid final Portable layout input") }
 	if err := revalidatePortableTarget(r.target); err != nil { return err }
+	r.progress("checking-layout-portable", 0, 0)
 	for _, p := range parts {
 		root := r.roots[p.Name]
 		if root == "" { return fmt.Errorf("missing mounted root for %s", p.Name) }
@@ -353,7 +394,11 @@ func ApplyPortablePhysicalWithProgress(request PortablePhysicalApplyRequest, rep
 
 	handles, sources, err := openPortableSourceHandles(request)
 	if err != nil { return PortablePhysicalApplyResult{}, err }
-	runtime := &portableWindowsRuntime{target:confirmed,sources:handles,roots:map[string]string{},synced:map[string]bool{},report:report}
+	runtime := &portableWindowsRuntime{
+		target: confirmed, sources: handles, roots: map[string]string{},
+		synced: map[string]bool{}, report: report,
+		totalProgressBytes: portableArtifactProgressTotal(request.ApplicationPlan),
+	}
 	defer runtime.close()
 
 	receipt, err := creatorcore.ExecutePortableApplication(request.ApplicationPlan, sources, creatorcore.PortableApplicationExecutionGrant{
