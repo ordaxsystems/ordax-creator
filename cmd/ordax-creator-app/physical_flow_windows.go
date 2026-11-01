@@ -184,6 +184,11 @@ func completeWrite(err error) {
 }
 
 func renderWriteProgress() {
+	// Ignore stale queued progress after the previous operation has ended
+	// and a new discovery has locked the selection controls.
+	if refreshInProgress {
+		return
+	}
 	writeMu.Lock()
 	state := writeState
 	writeMu.Unlock()
