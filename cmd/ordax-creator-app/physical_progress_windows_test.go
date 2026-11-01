@@ -369,8 +369,8 @@ func TestPortableProgressTrackerPreservesOrderAndDefersTerminalSuccess(t *testin
 			CompletedBytes: tc.done, TotalBytes: tc.total,
 		}
 		_, _, percent, ok := tracker.accept(doc)
-		if ok != tc.accept {
-			t.Fatalf("phase %q (%d/%d) accepted=%t, want %t", tc.phase, tc.done, tc.total, ok, tc.accept)
+		if ok != tc.accepted {
+			t.Fatalf("phase %q (%d/%d) accepted=%t, want %t", tc.phase, tc.done, tc.total, ok, tc.accepted)
 		}
 		if ok && (percent < 0 || percent > 95) {
 			t.Fatalf("Portable helper telemetry falsely declared completion at %d%%", percent)
