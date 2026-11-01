@@ -21,6 +21,10 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 4. **Physical writer:** the narrow Windows RAW backend is isolated behind an explicit build tag, authorized publisher binding and independent device-specific consent. Ordinary Creator GUI/CLI binaries and CI candidates do not include an authorized RAW writer.
 5. **OS integration:** `ordax-os` owns the authoritative media producers, boot proof, signing and promotion policy. Its existing consumers reference the independent Creator source; there is no embedded duplicate Creator Go implementation in the OS after C6.
 
+## Shared cache directory policy
+
+All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symlink, junction/reparse-point equivalent exposed as a symlink by the host, or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
+
 ## Evidence and release gates
 
 - Core/Go vet, immutable read-only contract integration, real Win32 UI smoke, unsafe-target negative tests, repeatable unsigned ZIP builds, and synthetic/disposable file tests are non-destructive engineering evidence.
