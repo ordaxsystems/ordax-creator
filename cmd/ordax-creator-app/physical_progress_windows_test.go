@@ -3,6 +3,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -64,5 +66,39 @@ func TestPhysicalProgressSafetyCompositionWorksInBundledLocales(t *testing.T) {
 		if !strings.Contains(status, creatorMessageFor(locale, msgCreatingEyebrow, nil)) || !strings.Contains(hint, creatorMessageFor(locale, msgCreatingTitle, nil)) {
 			t.Fatalf("locale %s lost guided safety copy: status=%q hint=%q", locale, status, hint)
 		}
+	}
+}
+
+func TestReadPhysicalProgressUsesBoundedRegularFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "progress.json")
+	body := []byte(`{"$schema":"prototype-ordax.creator-physical-progress/1","phase":"writing","completed_bytes":1,"total_bytes":2}`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	document, err := readPhysicalProgress(path)
+	if err != nil || document.Phase != "writing" {
+		t.Fatalf("safe progress snapshot rejected: %+v, %v", document, err)
+	}
+	if err := os.Truncate(path, 4097); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readPhysicalProgress(path); err == nil {
+		t.Fatal("oversized progress evidence was accepted")
+	}
+}
+
+func TestReadPhysicalProgressRejectsRedirectedFile(t *testing.T) {
+	root := t.TempDir()
+	realFile := filepath.Join(root, "real-progress.json")
+	if err := os.WriteFile(realFile, []byte(`{"$schema":"prototype-ordax.creator-physical-progress/1","phase":"complete","completed_bytes":2,"total_bytes":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(root, "progress.json")
+	if err := os.Symlink(realFile, linked); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := readPhysicalProgress(linked); err == nil {
+		t.Fatal("symlinked progress evidence was accepted")
 	}
 }
