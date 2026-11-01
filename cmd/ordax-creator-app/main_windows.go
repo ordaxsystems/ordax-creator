@@ -172,6 +172,7 @@ type appRefreshState struct {
 	Version          string
 	SourceCommit     string
 	Updated          bool
+	NoticeID         creatorMessageID
 	Targets          []physicalTarget
 	Error            string
 	PhysicalReady    bool
@@ -448,7 +449,11 @@ func renderSelectionExperience(state appRefreshState) {
 		status = view.Eyebrow + " · " + status
 	}
 	setCreatorStatus(status)
-	setCreatorHint(strings.TrimSpace(view.Body + " " + view.Detail))
+	hint := strings.TrimSpace(view.Body + " " + view.Detail)
+	if state.Error == "" && state.NoticeID != "" {
+		hint = strings.TrimSpace(hint + " " + creatorT(state.NoticeID))
+	}
+	setCreatorHint(hint)
 
 	busy := writeInProgress()
 	enable(writeButton, !busy && view.Step == creatorStepReview && view.CanContinue)
