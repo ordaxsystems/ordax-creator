@@ -201,3 +201,31 @@ func TestCorruptCurrentEnvelopeBlocksAutomaticUpdate(t *testing.T) {
 		t.Fatalf("invalid signed baseline did not fail closed: %v", err)
 	}
 }
+
+func TestOfflineAppRejectsOversizedCurrentPreviousAndPendingEnvelopes(t *testing.T) {
+	trust, _, trustSHA := testTrust(t)
+	for _, name := range []string{currentEnvelopeName, previousEnvelopeName, pendingEnvelopeName} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, name)
+			if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Truncate(path, maxEnvelopeBytes+1); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			switch name {
+			case currentEnvelopeName:
+				_, err = Current(root, trust, trustSHA)
+			case previousEnvelopeName:
+				_, err = Previous(root, trust, trustSHA)
+			case pendingEnvelopeName:
+				_, _, err = readVerifiedEnvelope(root, name, trust, trustSHA)
+			}
+			if err == nil || !strings.Contains(err.Error(), "outside allowed size") {
+				t.Fatalf("oversized signed App pointer was accepted: %v", err)
+			}
+		})
+	}
+}
