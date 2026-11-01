@@ -356,3 +356,31 @@ func TestSignedAppRejectsNoncanonicalReleaseAssetURL(t *testing.T) {
 		t.Fatalf("canonical signed asset URL rejected: %v", err)
 	}
 }
+
+func TestSignedAppCachedRejectsSameCommitReboundRelease(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	body := []byte("unchanged-signed-app")
+	baseline := validManifest(body, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 4)
+	directory := filepath.Join(root, "versions", baseline.SourceCommit)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, ArtifactName), body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pointer := signedEnvelope(t, baseline, private)
+	if err := os.WriteFile(filepath.Join(root, currentEnvelopeName), pointer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rebound := baseline
+	rebound.Artifact.SHA256 = strings.Repeat("b", 64)
+	client := &http.Client{Transport: staticTransport{envelope: signedEnvelope(t, rebound, private), artifact: body}}
+	if installed, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil || changed || installed.SourceCommit != "" {
+		t.Fatalf("rebound same-commit app was accepted: changed=%t installed=%+v err=%v", changed, installed, err)
+	}
+	current, err := Current(root, trust, trustSHA)
+	if err != nil || current.Manifest != baseline {
+		t.Fatalf("last verified App was replaced by rebind: current=%+v err=%v", current, err)
+	}
+}
