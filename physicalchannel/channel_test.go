@@ -429,3 +429,40 @@ func TestVerifyPortablePayloadInstalledRejectsTamperedSource(t *testing.T) {
 	}
 }
 
+
+
+func TestVerifyEnvelopeRejectsNonCanonicalPhysicalBundleURLs(t *testing.T) {
+	trust, private, trustSHA := testTrust(t)
+	prefix := "https://github.com/ordaxsystems/ordax-os/releases/download/creator-physical/"
+	for _, raw := range []string{
+		prefix,
+		prefix + "candidate.exe",
+		prefix + "nested/candidate.zip",
+		prefix + "../candidate.zip",
+		prefix + "candidate.zip?download=1",
+		prefix + "candidate.zip?",
+		prefix + "candidate%2Ezip",
+		prefix + "candidate.zip#fragment",
+		prefix + "candidate.zip/next",
+		"https://github.com.evil.example/ordaxsystems/ordax-os/releases/download/creator-physical/candidate.zip",
+		"https://github.com:443/ordaxsystems/ordax-os/releases/download/creator-physical/candidate.zip",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/candidate.zip",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			m := validManifest()
+			m.Bundle.URL = raw
+			if _, err := VerifyEnvelope(signedEnvelope(t, m, private), trust, trustSHA); err == nil {
+				t.Fatalf("noncanonical physical release URL %q unexpectedly accepted", raw)
+			}
+		})
+	}
+	for _, asset := range []string{"ordax-creator-physical-windows-amd64.zip", "future-physical-candidate.zip"} {
+		t.Run("valid-"+asset, func(t *testing.T) {
+			m := validManifest()
+			m.Bundle.URL = prefix + asset
+			if _, err := VerifyEnvelope(signedEnvelope(t, m, private), trust, trustSHA); err != nil {
+				t.Fatalf("canonical physical release asset %q rejected: %v", asset, err)
+			}
+		})
+	}
+}
