@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -416,5 +418,32 @@ func TestPhysicalAuthorizationRejectsOversizedSignedFileBeforeParsing(t *testing
 	if err := verifyPortableAuthorizationBinding(candidate, physicalProvenance{}); err == nil ||
 		!strings.Contains(err.Error(), "outside allowed size") {
 		t.Fatalf("oversized physical authorization should be rejected before parsing: %v", err)
+	}
+}
+
+func TestPhysicalSignedReleaseRejectsSameCommitReboundBundle(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	baseline := sequencedCandidate(t, root, "7777777777777777777777777777777777777777", 7)
+	cacheSignedCandidate(t, root, baseline, private)
+	if err := ensureNotRollback(root, baseline, trust, trustSHA); err != nil {
+		t.Fatalf("unchanged physical candidate identity rejected: %v", err)
+	}
+	rebound := baseline
+	rebound.Manifest.Bundle.SHA256 = strings.Repeat("b", 64)
+	if err := ensureNotRollback(root, rebound, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "source commit") {
+		t.Fatalf("rebound physical release was accepted: %v", err)
+	}
+	envelope := signedEnvelope(t, rebound.Manifest, private)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(envelope)
+	}))
+	defer server.Close()
+	if installed, changed, err := AcquireCached(server.Client(), root, server.URL, trust, trustSHA); err == nil || changed || installed.SourceCommit != "" {
+		t.Fatalf("rebound physical source activated: changed=%t installed=%+v err=%v", changed, installed, err)
+	}
+	current, err := Current(root, trust, trustSHA)
+	if err != nil || current.Manifest.Bundle.SHA256 != baseline.Manifest.Bundle.SHA256 {
+		t.Fatalf("original physical signed pointer was overwritten: current=%+v err=%v", current, err)
 	}
 }
