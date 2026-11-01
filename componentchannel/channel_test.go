@@ -449,7 +449,7 @@ func TestDamagedSignedComponentUsesAuthenticatedSequenceForRepairAndRollback(t *
 	sequenceReused := newer
 	sequenceReused.ReleaseSequence = old.ReleaseSequence
 	rebound := old
-	rebound.Bundle.SHA256 = strings.Repeat("a", 64)
+	rebound.Bundle.SHA256 = strings.Repeat("c", 64)
 	for _, tc := range []struct {
 		name string
 		manifest Manifest
