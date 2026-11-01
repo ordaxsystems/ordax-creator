@@ -351,10 +351,12 @@ func extractPayload(zipPath, destination string, manifest Manifest) error {
 			return fmt.Errorf("unsafe archive path %q", item.Name)
 		}
 		cleanName := filepath.Clean(filepath.FromSlash(item.Name))
-		if _, exists := seen[cleanName]; exists {
+		// Windows paths are case-insensitive; reject aliases even in Linux CI.
+		caseFolded := strings.ToLower(cleanName)
+		if _, exists := seen[caseFolded]; exists {
 			return fmt.Errorf("duplicate archive path %q", item.Name)
 		}
-		seen[cleanName] = struct{}{}
+		seen[caseFolded] = struct{}{}
 		if item.FileInfo().Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink is forbidden in update archive: %q", item.Name)
 		}
