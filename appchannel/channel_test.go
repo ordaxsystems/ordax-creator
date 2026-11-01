@@ -126,7 +126,7 @@ func TestVerifyEnvelopeRejectsPurposeSignatureTrustAndSequence(t *testing.T) {
 	}
 }
 
-func TestAcquireCachesSignedAppAndCurrentWorksOffline(t *testing.T) {
+func TestAcquirePendingCannotActivateSignedAppWithoutPromotion(t *testing.T) {
 	root := t.TempDir()
 	trust, private, trustSHA := testTrust(t)
 	body := []byte("signed-authenticode-app-bytes-placeholder")
@@ -134,7 +134,7 @@ func TestAcquireCachesSignedAppAndCurrentWorksOffline(t *testing.T) {
 	envelope := signedEnvelope(t, manifest, private)
 	client := &http.Client{Transport: staticTransport{envelope: envelope, artifact: body}}
 
-	installed, changed, err := AcquireCached(client, root, "https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/creator-app-envelope.json", trust, trustSHA)
+	installed, changed, err := AcquirePending(client, root, "https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/creator-app-envelope.json", trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,14 @@ func TestAcquireCachesSignedAppAndCurrentWorksOffline(t *testing.T) {
 	if got, err := os.ReadFile(installed.Executable); err != nil || string(got) != string(body) {
 		t.Fatalf("installed bytes mismatch: err=%v got=%q", err, got)
 	}
-
+	// The pending executable is signed and hashed but MUST NOT be current
+	// before a separate launcher health-check and explicit promotion.
+	if _, err := Current(root, trust, trustSHA); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending app bypassed launcher health gate: %v", err)
+	}
+	if _, err := PromotePending(root, installed.Manifest, trust, trustSHA); err != nil {
+		t.Fatalf("explicit health-checked promotion rejected: %v", err)
+	}
 	current, err := Current(root, trust, trustSHA)
 	if err != nil {
 		t.Fatal(err)
@@ -197,15 +204,15 @@ func TestRollbackAndSequenceReuseAreRejected(t *testing.T) {
 	}
 
 	older := validManifest([]byte("old"), "1111111111111111111111111111111111111111", 3)
-	if err := checkRollback(root, older, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "rollback rejected") {
+	if err := checkPendingRollback(root, older, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "rollback rejected") {
 		t.Fatalf("rollback error=%v", err)
 	}
 	reused := validManifest([]byte("other"), "5555555555555555555555555555555555555555", 4)
-	if err := checkRollback(root, reused, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "reused") {
+	if err := checkPendingRollback(root, reused, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "reused") {
 		t.Fatalf("sequence reuse error=%v", err)
 	}
 	newer := validManifest([]byte("new"), "6666666666666666666666666666666666666666", 5)
-	if err := checkRollback(root, newer, trust, trustSHA); err != nil {
+	if err := checkPendingRollback(root, newer, trust, trustSHA); err != nil {
 		t.Fatalf("newer app rejected: %v", err)
 	}
 }
@@ -234,9 +241,6 @@ func TestSignedAppRejectsSymlinkedVersionsRootAcrossReadAndPending(t *testing.T)
 		t.Fatalf("offline signed app followed redirected versions root: %v", err)
 	}
 	client := &http.Client{Transport: staticTransport{envelope: envelope, artifact: body}}
-	if _, _, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil {
-		t.Fatal("online signed app cache followed redirected versions root")
-	}
 	if _, _, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil {
 		t.Fatal("pending signed app followed redirected versions root")
 	}
@@ -250,9 +254,9 @@ func (fn signedAppTestTransport) RoundTrip(req *http.Request) (*http.Response, e
 }
 
 // Only signed local fixtures and an in-memory HTTP transport are used here.
-// The official launcher has an independent LastKnownGood fallback; this
-// cache API may never report an unconfirmed candidate as a successful update.
-func TestSignedAppCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
+// Pending staging must confirm the same signed envelope twice, and must
+// never publish Current until launcher health-check and explicit promotion.
+func TestSignedAppPendingRequiresSecondStableEnvelope(t *testing.T) {
 	for _, mode := range []string{
 		"stable", "network-failure", "http-failure",
 		"changed-signed-artifact", "invalid-second-signature", "pointer-write-failure",
@@ -301,7 +305,7 @@ func TestSignedAppCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
 					case "http-failure":
 						return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header), Request: req}, nil
 					case "pointer-write-failure":
-						if err := os.Mkdir(filepath.Join(root, currentEnvelopeName), 0o700); err != nil {
+						if err := os.Mkdir(filepath.Join(root, pendingEnvelopeName), 0o700); err != nil {
 							return nil, err
 						}
 					}
@@ -312,16 +316,22 @@ func TestSignedAppCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
 				}
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(data)), Header: make(http.Header), Request: req}, nil
 			})}
-			got, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA)
+			got, changed, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA)
 			if requests != 2 {
 				t.Fatalf("expected two independent envelope fetches, got %d, err=%v", requests, err)
 			}
 			if mode == "stable" {
-				if err != nil || changed || got.SourceCommit != manifest.SourceCommit {
-					t.Fatalf("stable signed app cache changed=%t installed=%+v err=%v", changed, got, err)
+				if err != nil || !changed || got.SourceCommit != manifest.SourceCommit {
+					t.Fatalf("stable signed app not staged: pending=%t installed=%+v err=%v", changed, got, err)
 				}
-				if _, err := Current(root, trust, trustSHA); err != nil {
-					t.Fatalf("valid cache pointer did not activate: %v", err)
+				if _, err := Current(root, trust, trustSHA); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("signed app became current without health-check: %v", err)
+				}
+				if _, err := PromotePending(root, got.Manifest, trust, trustSHA); err != nil {
+					t.Fatalf("explicit health-checked promotion failed: %v", err)
+				}
+				if current, err := Current(root, trust, trustSHA); err != nil || current.Manifest != manifest {
+					t.Fatalf("verified App did not activate after promotion: %+v err=%v", current, err)
 				}
 			} else {
 				if err == nil || changed || got.SourceCommit != "" {
@@ -329,6 +339,11 @@ func TestSignedAppCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
 				}
 				if _, err := Current(root, trust, trustSHA); err == nil {
 					t.Fatal("unconfirmed signed app became offline current")
+				}
+				if mode != "pointer-write-failure" {
+					if _, err := os.Lstat(filepath.Join(root, pendingEnvelopeName)); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("unconfirmed signed App retained pending marker: %v", err)
+					}
 				}
 			}
 		})
@@ -357,7 +372,7 @@ func TestSignedAppRejectsNoncanonicalReleaseAssetURL(t *testing.T) {
 	}
 }
 
-func TestSignedAppCachedRejectsSameCommitReboundRelease(t *testing.T) {
+func TestSignedAppPendingRejectsSameCommitReboundRelease(t *testing.T) {
 	root := t.TempDir()
 	trust, private, trustSHA := testTrust(t)
 	body := []byte("unchanged-signed-app")
@@ -376,7 +391,7 @@ func TestSignedAppCachedRejectsSameCommitReboundRelease(t *testing.T) {
 	rebound := baseline
 	rebound.Artifact.SHA256 = strings.Repeat("b", 64)
 	client := &http.Client{Transport: staticTransport{envelope: signedEnvelope(t, rebound, private), artifact: body}}
-	if installed, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil || changed || installed.SourceCommit != "" {
+	if installed, changed, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil || changed || installed.SourceCommit != "" {
 		t.Fatalf("rebound same-commit app was accepted: changed=%t installed=%+v err=%v", changed, installed, err)
 	}
 	current, err := Current(root, trust, trustSHA)

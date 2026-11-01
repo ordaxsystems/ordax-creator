@@ -18,9 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
-	"github.com/ordaxsystems/ordax-creator/internal/releaseidentity"
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
@@ -321,104 +319,4 @@ func Current(root string, trustBytes []byte, expectedTrustSHA256 string) (Instal
 		return Installed{}, err
 	}
 	return installedFrom(root, manifest)
-}
-
-func checkRollback(root string, candidate Manifest, trustBytes []byte, expectedTrustSHA256 string) error {
-	current, err := Current(root, trustBytes, expectedTrustSHA256)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("existing Creator app baseline is invalid; refusing rollback-sensitive update: %w", err)
-	}
-	return releaseidentity.Check("Creator app",
-		candidate.SourceCommit, candidate.ReleaseSequence, candidate,
-		current.SourceCommit, current.ReleaseSequence, current.Manifest)
-}
-
-func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []byte, expectedTrustSHA256 string) (Installed, bool, error) {
-	actualRoot, err := appRoot(root)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	if envelopeURL == "" {
-		envelopeURL = DefaultEnvelopeURL
-	}
-	separator := "?"
-	if strings.Contains(envelopeURL, "?") {
-		separator = "&"
-	}
-	firstBytes, err := fetchBytes(client, envelopeURL+separator+"ordax_nocache="+fmt.Sprint(time.Now().UnixNano()), maxEnvelopeBytes)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	manifest, err := VerifyEnvelope(firstBytes, trustBytes, expectedTrustSHA256)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	if err := checkRollback(actualRoot, manifest, trustBytes, expectedTrustSHA256); err != nil {
-		return Installed{}, false, err
-	}
-
-	versions, err := cachepath.EnsureVersions(actualRoot)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	finalDir := filepath.Join(versions, manifest.SourceCommit)
-	changed := false
-	if _, err := installedFrom(actualRoot, manifest); err == nil {
-		// Exact verified version already installed.
-	} else if info, statErr := os.Lstat(finalDir); statErr == nil {
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return Installed{}, false, errors.New("existing Creator app version slot is unsafe")
-		}
-		return Installed{}, false, errors.New("existing Creator app version slot does not match signed manifest")
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return Installed{}, false, statErr
-	} else {
-		tempDir, err := os.MkdirTemp(versions, ".app-install-*")
-		if err != nil {
-			return Installed{}, false, err
-		}
-		defer os.RemoveAll(tempDir)
-		artifactPath := filepath.Join(tempDir, ArtifactName)
-		if err := downloadArtifact(client, manifest.Artifact, artifactPath); err != nil {
-			return Installed{}, false, err
-		}
-		if err := os.Rename(tempDir, finalDir); err != nil {
-			return Installed{}, false, err
-		}
-		changed = true
-	}
-
-	if _, err := installedFrom(actualRoot, manifest); err != nil {
-		return Installed{}, false, err
-	}
-	verifyBytes, err := fetchBytes(client, envelopeURL+separator+"ordax_cache_verify="+fmt.Sprint(time.Now().UnixNano()), maxEnvelopeBytes)
-	if err != nil {
-		return Installed{}, false, fmt.Errorf("confirm signed Creator app envelope before cache activation: %w", err)
-	}
-	// The second independent read must name the exact same signed artifact
-	// before a newly installed slot may be exposed to the caller.
-	if !bytes.Equal(firstBytes, verifyBytes) {
-		return Installed{}, false, errors.New("signed Creator app envelope changed while preparing cached update")
-	}
-	verifyManifest, err := VerifyEnvelope(verifyBytes, trustBytes, expectedTrustSHA256)
-	if err != nil {
-		return Installed{}, false, fmt.Errorf("verify signed Creator app envelope before cache activation: %w", err)
-	}
-	if verifyManifest.SourceCommit != manifest.SourceCommit || verifyManifest.ReleaseSequence != manifest.ReleaseSequence {
-		return Installed{}, false, errors.New("signed Creator app identity changed while preparing cached update")
-	}
-	if err := checkRollback(actualRoot, verifyManifest, trustBytes, expectedTrustSHA256); err != nil {
-		return Installed{}, false, err
-	}
-	verified, err := installedFrom(actualRoot, verifyManifest)
-	if err != nil {
-		return Installed{}, false, err
-	}
-	if err := atomicfile.Replace(filepath.Join(actualRoot, currentEnvelopeName), verifyBytes); err != nil {
-		return Installed{}, false, fmt.Errorf("activate verified Creator app cache: %w", err)
-	}
-	return verified, changed, nil
 }
