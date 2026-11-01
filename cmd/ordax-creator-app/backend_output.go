@@ -37,6 +37,17 @@ func (output *boundedBackendOutput) Bytes() []byte {
 	return bytes.Clone(output.buffer.Bytes())
 }
 
+// The hidden, unelevated UI backend is exclusively for discovery and
+// preparation. Never let this convenience wrapper become a second apply path.
+func backendReadOnlyOperation(operation string) bool {
+	switch operation {
+	case "targets", "status", "prepare", "prepare-portable":
+		return true
+	default:
+		return false
+	}
+}
+
 // Discovery must not leave a permanently spinning first-use screen. Preparing
 // an image can legitimately take longer, but is still bounded. No timeout
 // authorizes writing: elevated apply has its independent consent and gates.
