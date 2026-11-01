@@ -207,3 +207,35 @@ func TestRollbackAndSequenceReuseAreRejected(t *testing.T) {
 		t.Fatalf("newer app rejected: %v", err)
 	}
 }
+
+func TestSignedAppRejectsSymlinkedVersionsRootAcrossReadAndPending(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(root, "versions")); err != nil {
+		t.Skipf("symlinks unavailable on this host: %v", err)
+	}
+	trust, private, trustSHA := testTrust(t)
+	body := []byte("signed-app-byte-fixture")
+	manifest := validManifest(body, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 15)
+	dir := filepath.Join(external, manifest.SourceCommit)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ArtifactName), body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envelope := signedEnvelope(t, manifest, private)
+	if err := os.WriteFile(filepath.Join(root, currentEnvelopeName), envelope, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "versions cache") {
+		t.Fatalf("offline signed app followed redirected versions root: %v", err)
+	}
+	client := &http.Client{Transport: staticTransport{envelope: envelope, artifact: body}}
+	if _, _, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil {
+		t.Fatal("online signed app cache followed redirected versions root")
+	}
+	if _, _, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil {
+		t.Fatal("pending signed app followed redirected versions root")
+	}
+}

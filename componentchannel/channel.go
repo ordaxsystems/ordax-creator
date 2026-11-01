@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
+	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 )
 
 const (
@@ -401,6 +402,9 @@ func Current(root string, trustBytes []byte, expectedTrustSHA256 string) (Instal
 	if err != nil {
 		return Installed{}, err
 	}
+	if _, err := cachepath.Versions(root); err != nil {
+		return Installed{}, err
+	}
 	directory := filepath.Join(root, "versions", manifest.SourceCommit)
 	if err := VerifyInstalled(directory, manifest); err != nil {
 		return Installed{}, err
@@ -449,8 +453,8 @@ func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []b
 		return Installed{}, false, err
 	}
 
-	versions := filepath.Join(actualRoot, "versions")
-	if err := os.MkdirAll(versions, 0o755); err != nil {
+	versions, err := cachepath.EnsureVersions(actualRoot)
+	if err != nil {
 		return Installed{}, false, err
 	}
 	finalDir := filepath.Join(versions, manifest.SourceCommit)

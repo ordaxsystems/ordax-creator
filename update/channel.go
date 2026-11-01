@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
+	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 )
 
 const (
@@ -493,18 +494,6 @@ func verifyInstalledFiles(installed Installed) error {
 	return nil
 }
 
-func safeInstalledVersionsRoot(root string) error {
-	directory := filepath.Join(root, "versions")
-	info, err := os.Lstat(directory)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("installed Creator versions directory is unsafe")
-	}
-	return nil
-}
-
 func Current(root string) (Installed, error) {
 	if root == "" {
 		var err error
@@ -550,7 +539,7 @@ func Current(root string) (Installed, error) {
 	if current.Schema != "prototype-ordax.creator-installed/1" || current.Channel != DevelopmentChannel || !versionPattern.MatchString(current.Version) || !commitPattern.MatchString(current.SourceCommit) {
 		return Installed{}, errors.New("invalid installed Creator metadata")
 	}
-	if err := safeInstalledVersionsRoot(root); err != nil {
+	if _, err := cachepath.Versions(root); err != nil {
 		return Installed{}, err
 	}
 	expected := filepath.Join(root, "versions", current.SourceCommit)
@@ -585,9 +574,8 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 		return current, false, nil
 	}
 
-	versionsDir := filepath.Join(root, "versions")
-	if err := os.MkdirAll(versionsDir, 0o755); err != nil { return Installed{}, false, err }
-	if err := safeInstalledVersionsRoot(root); err != nil { return Installed{}, false, err }
+	versionsDir, err := cachepath.EnsureVersions(root)
+	if err != nil { return Installed{}, false, err }
 	finalDir := filepath.Join(versionsDir, manifest.SourceCommit)
 	existingSlot := false
 	if info, err := os.Lstat(finalDir); err == nil {

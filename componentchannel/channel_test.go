@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,5 +175,40 @@ func TestRollbackPolicyRejectsOlderAndSequenceReuse(t *testing.T) {
 	newer.ReleaseSequence = 3
 	if err := checkRollback(root, newer, trust, trustSHA); err != nil {
 		t.Fatalf("newer candidate rejected: %v", err)
+	}
+}
+
+func TestSignedComponentRejectsSymlinkedVersionsRootOfflineAndOnline(t *testing.T) {
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.Symlink(external, filepath.Join(root, "versions")); err != nil {
+		t.Skipf("symlinks unavailable on this host: %v", err)
+	}
+	trust, private, trustSHA := testTrust(t)
+	manifest := validManifest()
+	body := []byte("signed-inspection-component")
+	digest := sha256.Sum256(body)
+	manifest.File.SHA256 = hex.EncodeToString(digest[:])
+	manifest.File.Size = int64(len(body))
+	dir := filepath.Join(external, manifest.SourceCommit)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, expectedFile), body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envelope := signedEnvelope(t, manifest, private)
+	if err := os.WriteFile(filepath.Join(root, currentEnvelopeName), envelope, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "versions cache") {
+		t.Fatalf("offline signed component followed redirected versions root: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(envelope)
+	}))
+	defer server.Close()
+	if _, _, err := AcquireCached(server.Client(), root, server.URL, trust, trustSHA); err == nil {
+		t.Fatal("online signed component cache followed redirected versions root")
 	}
 }
