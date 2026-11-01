@@ -384,3 +384,30 @@ func TestSignedAppCachedRejectsSameCommitReboundRelease(t *testing.T) {
 		t.Fatalf("last verified App was replaced by rebind: current=%+v err=%v", current, err)
 	}
 }
+
+func TestOfflineSignedAppRejectsOversizedExecutableBeforeHashing(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	body := []byte("signed-app-executable")
+	manifest := validManifest(body, "9999999999999999999999999999999999999999", 9)
+	directory := filepath.Join(root, "versions", manifest.SourceCommit)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(directory, ArtifactName)
+	if err := os.WriteFile(executable, body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, currentEnvelopeName), signedEnvelope(t, manifest, private), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root, trust, trustSHA); err != nil {
+		t.Fatalf("valid signed app rejected: %v", err)
+	}
+	if err := os.Truncate(executable, 8<<20); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "changed size") {
+		t.Fatalf("oversized signed app executable was accepted: %v", err)
+	}
+}
