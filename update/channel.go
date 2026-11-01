@@ -571,73 +571,69 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 	if root == "" {
 		var err error
 		root, err = installRoot()
-		if err != nil {
-			return Installed{}, false, err
-		}
+		if err != nil { return Installed{}, false, err }
 	}
 	manifest, err := FetchManifest(client, manifestURL)
-	if err != nil {
-		return Installed{}, false, err
-	}
+	if err != nil { return Installed{}, false, err }
 	if current, err := Current(root); err == nil && current.SourceCommit == manifest.SourceCommit {
-		if current.Version != manifest.Version {
-			return Installed{}, false, errors.New("installed Creator version differs from the published version for the same source commit")
+		if current.Version != manifest.Version || current.PayloadSHA256 != manifest.Payload.SHA256 {
+			return Installed{}, false, errors.New("cached Creator metadata conflicts with published source/payload")
 		}
 		if err := verifyEntrypoints(current.Directory, manifest); err != nil {
 			return Installed{}, false, fmt.Errorf("installed Creator payload failed validation: %w", err)
 		}
 		return current, false, nil
 	}
+
 	versionsDir := filepath.Join(root, "versions")
-	if err := os.MkdirAll(versionsDir, 0o755); err != nil {
-		return Installed{}, false, err
-	}
-	if err := safeInstalledVersionsRoot(root); err != nil {
-		return Installed{}, false, err
-	}
+	if err := os.MkdirAll(versionsDir, 0o755); err != nil { return Installed{}, false, err }
+	if err := safeInstalledVersionsRoot(root); err != nil { return Installed{}, false, err }
 	finalDir := filepath.Join(versionsDir, manifest.SourceCommit)
+	existingSlot := false
 	if info, err := os.Lstat(finalDir); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return Installed{}, false, errors.New("existing Creator version slot is unsafe")
 		}
-		if err := verifyEntrypoints(finalDir, manifest); err != nil {
-			return Installed{}, false, fmt.Errorf("existing Creator version slot failed validation: %w", err)
-		}
-		installed := Installed{Schema: "prototype-ordax.creator-installed/1", Channel: manifest.Channel, Version: manifest.Version, SourceCommit: manifest.SourceCommit, Directory: finalDir}
-		data, _ := json.MarshalIndent(installed, "", "  ")
-		data = append(data, '\n')
-		if err := atomicfile.Replace(filepath.Join(root, "current.json"), data); err != nil {
-			return Installed{}, false, err
-		}
-		return installed, false, nil
+		existingSlot = true
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Installed{}, false, err
 	}
-
+	// Legacy or unverified slots require a fresh exact ZIP verification before
+	// adoption; never trust the existence of two expected executables alone.
 	tempDir, err := os.MkdirTemp(versionsDir, ".install-*")
-	if err != nil {
-		return Installed{}, false, err
-	}
+	if err != nil { return Installed{}, false, err }
 	defer os.RemoveAll(tempDir)
 	zipPath := filepath.Join(tempDir, "payload.zip")
-	if err := downloadPayload(client, manifest.Payload, zipPath); err != nil {
-		return Installed{}, false, err
-	}
+	if err := downloadPayload(client, manifest.Payload, zipPath); err != nil { return Installed{}, false, err }
 	extracted := filepath.Join(tempDir, "payload")
-	if err := os.Mkdir(extracted, 0o755); err != nil {
+	if err := os.Mkdir(extracted, 0o755); err != nil { return Installed{}, false, err }
+	if err := extractPayload(zipPath, extracted, manifest); err != nil { return Installed{}, false, err }
+	files, err := installedFileInventory(extracted)
+	if err != nil { return Installed{}, false, err }
+	changed := !existingSlot
+	if existingSlot {
+		localFiles, err := installedFileInventory(finalDir)
+		if err != nil || !sameInstalledFiles(files,localFiles) {
+			return Installed{}, false, errors.New("existing Creator version slot differs from verified development payload")
+		}
+	} else if err := os.Rename(extracted, finalDir); err != nil {
 		return Installed{}, false, err
 	}
-	if err := extractPayload(zipPath, extracted, manifest); err != nil {
-		return Installed{}, false, err
+	installed := Installed{
+		Schema:"prototype-ordax.creator-installed/1", Channel:manifest.Channel,
+		Version:manifest.Version, SourceCommit:manifest.SourceCommit,
+		Directory:finalDir, PayloadSHA256:manifest.Payload.SHA256, Files:files,
 	}
-	if err := os.Rename(extracted, finalDir); err != nil {
-		return Installed{}, false, err
-	}
-	installed := Installed{Schema: "prototype-ordax.creator-installed/1", Channel: manifest.Channel, Version: manifest.Version, SourceCommit: manifest.SourceCommit, Directory: finalDir}
-	data, _ := json.MarshalIndent(installed, "", "  ")
+	if err := verifyInstalledFiles(installed); err != nil { return Installed{}, false, err }
+	if err := verifyEntrypoints(finalDir, manifest); err != nil { return Installed{}, false, err }
+	data, err := json.MarshalIndent(installed, "", "  ")
+	if err != nil { return Installed{}, false, err }
 	data = append(data, '\n')
-	if err := atomicfile.Replace(filepath.Join(root, "current.json"), data); err != nil {
+	if len(data) > maxInstalledPointerBytes {
+		return Installed{}, false, errors.New("Creator development receipt exceeds size limit")
+	}
+	if err := atomicfile.Replace(filepath.Join(root,"current.json"),data); err != nil {
 		return Installed{}, false, err
 	}
-	return installed, true, nil
+	return installed, changed, nil
 }
