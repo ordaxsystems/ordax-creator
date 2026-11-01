@@ -96,6 +96,8 @@ const (
 	msgProgressCompleteHint      creatorMessageID = "creator.progress.complete.hint"
 	msgVersionChecking           creatorMessageID = "creator.version.checking"
 	msgVersionAvailable          creatorMessageID = "creator.version.available"
+	msgRefreshSignedCacheNotice creatorMessageID = "creator.refresh.cache.signed.notice"
+	msgRefreshDevCacheNotice    creatorMessageID = "creator.refresh.cache.dev.notice"
 	msgRefreshFailedDetail       creatorMessageID = "creator.refresh.failed.detail"
 	msgPhysicalWriteFailedDetail creatorMessageID = "creator.write.failed.detail"
 	msgTargetSelectionFailed     creatorMessageID = "creator.target.selectionFailed"
@@ -201,6 +203,8 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgProgressCompleteHint:      "Gravação, verificação e ORDAX-DATA foram concluídos.",
 	msgVersionChecking:           "verificando versão…",
 	msgVersionAvailable:          "disponível",
+	msgRefreshSignedCacheNotice: "Atualização indisponível. Usando a última versão assinada verificada.",
+	msgRefreshDevCacheNotice:    "Atualização indisponível. Usando a última versão local verificada de desenvolvimento.",
 	msgRefreshFailedDetail:       "Não foi possível atualizar a lista segura de dispositivos USB. Tente novamente; nenhum disco foi alterado.",
 	msgPhysicalWriteFailedDetail: "A criação foi interrompida com segurança. Consulte os detalhes técnicos abaixo para identificar a causa.",
 	msgTargetSelectionFailed:     "O destino USB selecionado não está disponível ou não passou pela política de segurança. Recarregue a lista e selecione novamente.",
@@ -307,6 +311,8 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgProgressCompleteHint:      "Writing, verification, and ORDAX-DATA preparation are complete.",
 	msgVersionChecking:           "checking version…",
 	msgVersionAvailable:          "available",
+	msgRefreshSignedCacheNotice: "Update unavailable. Using the last verified signed version.",
+	msgRefreshDevCacheNotice:    "Update unavailable. Using the last verified local development version.",
 	msgRefreshFailedDetail:       "Unable to refresh the safe USB device list. Try again; no disk was changed.",
 	msgPhysicalWriteFailedDetail: "Creation stopped safely. Review the technical details below to identify the cause.",
 	msgTargetSelectionFailed:     "The selected USB target is unavailable or did not pass the safety policy. Refresh the list and select it again.",

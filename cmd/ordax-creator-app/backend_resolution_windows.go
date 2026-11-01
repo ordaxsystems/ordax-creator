@@ -9,6 +9,26 @@ import (
 	creatorupdate "github.com/ordaxsystems/ordax-creator/update"
 )
 
+// markCachedChannelFallback distinguishes a failed update attempt from a
+// failed offline cache verification. Only a previously verified Current()
+// result may produce an informational notice; missing or invalid cache remains
+// fatal, and the physical channel retains its independent authorization gates.
+func markCachedChannelFallback(result *appRefreshState, signed bool, acquireErr, currentErr error) {
+	if currentErr == nil {
+		if signed {
+			result.NoticeID = msgRefreshSignedCacheNotice
+		} else {
+			result.NoticeID = msgRefreshDevCacheNotice
+		}
+		return
+	}
+	if signed {
+		result.Error = fmt.Sprintf("O canal oficial assinado de componentes não está disponível: %v", acquireErr)
+	} else {
+		result.Error = fmt.Sprintf("Não foi possível atualizar o Creator e nenhuma versão válida está instalada: %v", acquireErr)
+	}
+}
+
 func finishRefreshState(result appRefreshState, backendDirectory string) appRefreshState {
 	if backendDirectory == "" {
 		return result
@@ -58,11 +78,9 @@ func resolveRefreshState() appRefreshState {
 		installed, changed, err := componentchannel.AcquireCached(nil, "", "", trust, trustSHA)
 		if err != nil {
 			current, currentErr := componentchannel.Current("", trust, trustSHA)
-			if currentErr != nil {
-				result.Error = fmt.Sprintf("O canal oficial assinado de componentes não está disponível: %v", err)
-			} else {
+			markCachedChannelFallback(&result, true, err, currentErr)
+			if currentErr == nil {
 				installed = current
-				result.Error = fmt.Sprintf("Sem atualização do componente oficial; usando a última versão assinada válida. %v", err)
 			}
 		}
 		if installed.Version != "" {
@@ -75,11 +93,9 @@ func resolveRefreshState() appRefreshState {
 		installed, changed, err := creatorupdate.Ensure(nil, "", "")
 		if err != nil {
 			current, currentErr := creatorupdate.Current("")
-			if currentErr != nil {
-				result.Error = fmt.Sprintf("Não foi possível atualizar o Creator e nenhuma versão válida está instalada: %v", err)
-			} else {
+			markCachedChannelFallback(&result, false, err, currentErr)
+			if currentErr == nil {
 				installed = current
-				result.Error = fmt.Sprintf("Sem atualização de rede; usando a última versão válida. %v", err)
 			}
 		}
 		if installed.Version != "" {

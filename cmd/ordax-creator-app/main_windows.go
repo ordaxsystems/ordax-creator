@@ -172,6 +172,7 @@ type appRefreshState struct {
 	Version          string
 	SourceCommit     string
 	Updated          bool
+	NoticeID         creatorMessageID
 	Targets          []physicalTarget
 	Error            string
 	PhysicalReady    bool
@@ -432,6 +433,13 @@ func selectedTargetIndex() int {
 func selectionExperience(state appRefreshState) creatorExperienceView {
 	index := selectedTargetIndex()
 	selected := index >= 0 && index < len(state.Targets)
+	return selectionExperienceForState(state, selected)
+}
+
+// Cached-channel notices never substitute for a verified physical writer.
+// Only fatal acquisition/target errors can turn an otherwise valid state
+// into a blocked experience; the physical readiness gate remains unchanged.
+func selectionExperienceForState(state appRefreshState, selected bool) creatorExperienceView {
 	var errorMessageID creatorMessageID
 	errorStep := 0
 	if state.Error != "" {
@@ -448,7 +456,11 @@ func renderSelectionExperience(state appRefreshState) {
 		status = view.Eyebrow + " · " + status
 	}
 	setCreatorStatus(status)
-	setCreatorHint(strings.TrimSpace(view.Body + " " + view.Detail))
+	hint := strings.TrimSpace(view.Body + " " + view.Detail)
+	if state.Error == "" && state.NoticeID != "" {
+		hint = strings.TrimSpace(hint + " " + creatorT(state.NoticeID))
+	}
+	setCreatorHint(hint)
 
 	busy := writeInProgress()
 	enable(writeButton, !busy && view.Step == creatorStepReview && view.CanContinue)

@@ -25,6 +25,12 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 
 All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symbolic link or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
 
+## Offline cache fallback and physical readiness
+
+Windows refresh distinguishes **update availability** from **validity of installed content**. If the latest App/Component update cannot be acquired but that channel's existing `Current()` verifier accepts a complete local installation, the GUI shows a localized nonblocking cache notice instead of an error. Development caches are explicitly described as local **development** copies, never signed releases; signed Component caches are described as signed only after their existing signature validation succeeds.
+
+If no verified cache is available, refresh retains a fatal error. Independent physical-channel signature/trust, target enumeration, `PhysicalReady`, user confirmation and privileged-device revalidation remain separate requirements; neither a development cache nor an informational notice confers physical-write authority. Windows-only regression cases cover verified fallback, absent/invalid cache, physical readiness and fatal target failures.
+
 ## Windows design assets and first launch
 
 The Windows Creator consumes the theme JSON and symbol PNG exported by the Surface design source of truth, with their matching bundle `provenance.json`. The GUI preflight uses the existing `internal/safefile.ReadBoundedRegular` for all three local files (64 KiB theme, 2 MiB symbol, 64 KiB provenance), rejecting oversized, empty, non-regular or symlinked entries **before** allocating asset contents. The existing SHA-256/provenance checks remain authoritative for the exact bundle identity; this read guard is not a new palette owner, signer or release trust root.
