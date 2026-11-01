@@ -299,3 +299,25 @@ func TestSignedComponentCachedActivationRequiresSecondStableEnvelope(t *testing.
 		})
 	}
 }
+
+func TestSignedComponentRejectsNoncanonicalReleaseAssetURL(t *testing.T) {
+	trust, private, trustSHA := testTrust(t)
+	m := validManifest()
+	for _, badURL := range []string{
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-components/ordax-creator-components-windows-amd64.zip?",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-components/ordax-creator-components-windows-amd64.zip?download=1",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-components/ordax-creator-components-windows-amd64%2Ezip",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-components/ordax-creator-components-windows-amd64.zip#fragment",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-components/nested/ordax-creator-components-windows-amd64.zip",
+		"https://github.com.evil.example/ordaxsystems/ordax-os/releases/download/creator-components/ordax-creator-components-windows-amd64.zip",
+	} {
+		m.Bundle.URL = badURL
+		if _, err := VerifyEnvelope(signedEnvelope(t, m, private), trust, trustSHA); err == nil {
+			t.Errorf("noncanonical signed asset URL %q accepted", badURL)
+		}
+	}
+	m.Bundle.URL = validManifest().Bundle.URL
+	if _, err := VerifyEnvelope(signedEnvelope(t, m, private), trust, trustSHA); err != nil {
+		t.Fatalf("canonical signed asset URL rejected: %v", err)
+	}
+}
