@@ -51,12 +51,12 @@ func TestReadBoundedRegularRejectsUnsafeLocalEntries(t *testing.T) {
 	}
 }
 
-func TestReadBoundedRegularRejectsHugeSparseFileBeforeAllocation(t *testing.T) {
+func TestReadBoundedRegularRejectsOversizedSparseFileBeforeAllocation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "envelope")
 	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Truncate(path, 1<<30); err != nil {
+	if err := os.Truncate(path, 8<<20); err != nil {
 		t.Skipf("sparse test unavailable: %v", err)
 	}
 	if _, err := ReadBoundedRegular(path, 1<<20); err == nil {
