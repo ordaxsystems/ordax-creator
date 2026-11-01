@@ -2,7 +2,6 @@ package archivebounds
 
 import (
 	"bytes"
-	"math"
 	"strings"
 	"testing"
 )
@@ -20,8 +19,8 @@ func TestAddRejectsZip64OverflowAndCumulativeExpansion(t *testing.T) {
 		{name:"exact-limit",total:70,entry:30,max:100,want:100,ok:true},
 		{name:"cumulative-over-limit",total:70,entry:31,max:100},
 		{name:"entry-over-limit",total:0,entry:101,max:100},
-		{name:"max-uint64-wrap",total:1,entry:math.MaxUint64,max:100},
-		{name:"uint64-greater-than-int64",total:0,entry:uint64(math.MaxInt64)+1,max:100},
+		{name:"max-uint64-wrap",total:1,entry:^uint64(0),max:100},
+		{name:"uint64-greater-than-int64",total:0,entry:uint64((^uint64(0) >> 1))+1,max:100},
 		{name:"negative-max",total:0,entry:0,max:-1},
 		{name:"negative-total",total:-1,entry:1,max:100},
 		{name:"total-exceeds-max",total:101,entry:0,max:100},
@@ -46,7 +45,7 @@ func TestCopyExactLimitsActualExpandedBytes(t *testing.T) {
 		{name:"empty",body:"",expected:0,ok:true},
 		{name:"underreported",body:"abcdef",expected:3},
 		{name:"truncated",body:"abc",expected:6},
-		{name:"invalid-large",body:"a",expected:math.MaxUint64},
+		{name:"invalid-large",body:"a",expected:^uint64(0)},
 	} {
 		t.Run(tc.name,func(t *testing.T){
 			var out bytes.Buffer
