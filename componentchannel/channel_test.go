@@ -1,6 +1,7 @@
 package componentchannel
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/ed25519"
 	"errors"
@@ -395,5 +396,149 @@ func TestOfflineSignedComponentRejectsOversizedExecutableBeforeHashing(t *testin
 	}
 	if err := VerifyInstalled(directory, manifest); err == nil || !strings.Contains(err.Error(), "changed size") {
 		t.Fatalf("oversized signed component was accepted: %v", err)
+	}
+}
+
+func TestDamagedSignedComponentUsesAuthenticatedSequenceForRepairAndRollback(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	old := validManifest()
+	old.SourceCommit = strings.Repeat("1", 40)
+	old.ReleaseSequence = 10
+	old.Version = "1.0.0"
+	old = installManifest(t, root, old, []byte("old-signed-component"))
+	oldPointer := signedEnvelope(t, old, private)
+	if err := os.WriteFile(filepath.Join(root, currentEnvelopeName), oldPointer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Corruption of the executable must not erase the signed monotonic
+	// baseline, and may not itself produce a valid offline Current.
+	if err := os.WriteFile(filepath.Join(root, "versions", old.SourceCommit, expectedFile), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Current(root, trust, trustSHA); err == nil {
+		t.Fatal("damaged signed component was accepted as offline current")
+	}
+
+	newBody := []byte("new-valid-signed-component")
+	var archiveBytes bytes.Buffer
+	zw := zip.NewWriter(&archiveBytes)
+	entry, err := zw.Create(expectedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write(newBody); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	newer := validManifest()
+	newer.SourceCommit = strings.Repeat("2", 40)
+	newer.Version = "2.0.0"
+	newer.ReleaseSequence = old.ReleaseSequence + 1
+	fileSHA := sha256.Sum256(newBody)
+	newer.File.Size = int64(len(newBody))
+	newer.File.SHA256 = hex.EncodeToString(fileSHA[:])
+	bundleSHA := sha256.Sum256(archiveBytes.Bytes())
+	newer.Bundle.Size = int64(archiveBytes.Len())
+	newer.Bundle.SHA256 = hex.EncodeToString(bundleSHA[:])
+
+	older := newer
+	older.ReleaseSequence = old.ReleaseSequence - 1
+	sequenceReused := newer
+	sequenceReused.ReleaseSequence = old.ReleaseSequence
+	rebound := old
+	rebound.Bundle.SHA256 = strings.Repeat("a", 64)
+	for _, tc := range []struct {
+		name string
+		manifest Manifest
+	}{
+		{name: "rollback", manifest: older},
+		{name: "reused-sequence", manifest: sequenceReused},
+		{name: "same-commit-rebinding", manifest: rebound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := checkRollback(root, tc.manifest, trust, trustSHA); err == nil {
+				t.Fatalf("signed baseline protection bypassed despite damaged executable: %s", tc.name)
+			}
+		})
+	}
+	if err := checkRollback(root, newer, trust, trustSHA); err != nil {
+		t.Fatalf("newer signed component cannot repair damaged cache: %v", err)
+	}
+
+	envelope := signedEnvelope(t, newer, private)
+	manifestRequests, bundleRequests := 0, 0
+	client := &http.Client{Transport: signedComponentTestTransport(func(req *http.Request) (*http.Response, error) {
+		var data []byte
+		switch req.URL.Path {
+		case "/ordaxsystems/ordax-os/releases/download/creator-components/creator-component-envelope.json":
+			manifestRequests++
+			data = envelope
+		case "/ordaxsystems/ordax-os/releases/download/creator-components/ordax-creator-components-windows-amd64.zip":
+			bundleRequests++
+			data = archiveBytes.Bytes()
+		default:
+			t.Errorf("unexpected component URL: %s", req.URL)
+			return nil, errors.New("unexpected signed component source")
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(bytes.NewReader(data)),
+			Header: make(http.Header),
+			Request: req,
+		}, nil
+	})}
+	installed, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA)
+	if err != nil || !changed || installed.Manifest != newer {
+		t.Fatalf("valid newer signed repair failed: changed=%t manifest=%+v err=%v", changed, installed.Manifest, err)
+	}
+	if manifestRequests != 2 || bundleRequests != 1 {
+		t.Fatalf("repair unexpectedly skipped signed second read or ZIP: envelope=%d bundle=%d", manifestRequests, bundleRequests)
+	}
+	current, err := Current(root, trust, trustSHA)
+	if err != nil || current.Manifest != newer {
+		t.Fatalf("verified newer component was not activated: current=%+v err=%v", current, err)
+	}
+	if _, err := VerifyEnvelope(oldPointer, trust, trustSHA); err != nil {
+		t.Fatalf("old damaged executable lost its original signed identity: %v", err)
+	}
+	if err := checkRollback(root, old, trust, trustSHA); err == nil {
+		t.Fatal("new component allowed downgrade to prior signed source")
+	}
+}
+
+func TestComponentInvalidSignedBaselineStillBlocksOnlineRepair(t *testing.T) {
+	root := t.TempDir()
+	trust, private, trustSHA := testTrust(t)
+	old := installManifest(t, root, validManifest(), []byte("old-valid-component"))
+	path := filepath.Join(root, currentEnvelopeName)
+	oldPointer := signedEnvelope(t, old, private)
+	oldPointer[len(oldPointer)-2] ^= 1
+	if err := os.WriteFile(path, oldPointer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newer := validManifest()
+	newer.SourceCommit = strings.Repeat("3", 40)
+	newer.ReleaseSequence = old.ReleaseSequence + 1
+	if err := checkRollback(root, newer, trust, trustSHA); err == nil || !strings.Contains(err.Error(), "baseline is invalid") {
+		t.Fatalf("invalid signed pointer incorrectly allowed repair: %v", err)
+	}
+	newEnvelope := signedEnvelope(t, newer, private)
+	requests := 0
+	client := &http.Client{Transport: signedComponentTestTransport(func(req *http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(newEnvelope)), Header: make(http.Header), Request: req}, nil
+	})}
+	if installed, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil || changed || installed.SourceCommit != "" {
+		t.Fatalf("invalid signed baseline was overwritten: changed=%t installed=%+v err=%v", changed, installed, err)
+	}
+	if requests != 1 {
+		t.Fatalf("invalid baseline should reject before bundle/second read: requests=%d", requests)
+	}
+	pointer, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(pointer, oldPointer) {
+		t.Fatalf("invalid signed baseline was modified: %v", err)
 	}
 }
