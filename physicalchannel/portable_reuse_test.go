@@ -225,3 +225,26 @@ func TestPortablePayloadSkipsOversizedSparseDonorBeforeHashing(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOfflinePortableReceiptRejectsOversizedCacheBeforeReading(t *testing.T) {
+	root := t.TempDir()
+	manifest := validManifest()
+	manifest.Schema = ManifestSchemaPortable
+	payload := validPortablePayload()
+	manifest.PortablePayload = &payload
+	expected, err := canonicalPortablePayloadBytes(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, portablePayloadReceiptName)
+	if err := os.WriteFile(path, expected, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, 8<<20); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPortablePayloadInstalled(root, manifest); err == nil ||
+		!strings.Contains(err.Error(), "outside allowed size") {
+		t.Fatalf("oversized portable receipt was accepted: %v", err)
+	}
+}
