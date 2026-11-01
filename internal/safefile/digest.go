@@ -16,7 +16,7 @@ func DigestBoundRegular(path string, expectedSize int64) (string, int64, error) 
 	if expectedSize <= 0 || expectedSize == int64(^uint64(0)>>1) {
 		return "", 0, errors.New("invalid signed Creator artifact size")
 	}
-	return digestRegular(path, expectedSize)
+	return digestRegular(path, expectedSize, nil)
 }
 
 // DigestInventoryRegular uses the same bounded, identity-checked hash path for
@@ -26,13 +26,26 @@ func DigestInventoryRegular(path string, expectedSize int64) (string, int64, err
 	if expectedSize < 0 || expectedSize == int64(^uint64(0)>>1) {
 		return "", 0, errors.New("invalid Creator development inventory file size")
 	}
-	return digestRegular(path, expectedSize)
+	return digestRegular(path, expectedSize, nil)
 }
 
-// digestRegular is the only streamed SHA-256 reader for Creator cache files.
-// Never trust a mutable directory entry solely because a previous Lstat or
-// directory walk observed a regular file with the expected length.
-func digestRegular(path string, expectedSize int64) (string, int64, error) {
+// CopyBoundRegular copies exactly one positive-size signed cache artifact to an
+// unpublished staging writer, hashing the same opened file descriptor during
+// the copy. The caller MUST compare the result against the independently
+// verified signed SHA-256, and MUST discard the staging output on any mismatch
+// or error before exposing it as an installed artifact.
+func CopyBoundRegular(path string, expectedSize int64, staging io.Writer) (string, int64, error) {
+	if expectedSize <= 0 || expectedSize == int64(^uint64(0)>>1) || staging == nil {
+		return "", 0, errors.New("invalid signed Creator cache copy parameters")
+	}
+	return digestRegular(path, expectedSize, staging)
+}
+
+// digestRegular is the only streamed SHA-256 reader/copy source for Creator
+// cache files. Never trust an earlier directory walk or digest if opening the
+// same mutable path a second time: verify the identity of the descriptor that
+// actually provides the bytes.
+func digestRegular(path string, expectedSize int64, staging io.Writer) (string, int64, error) {
 	entry, err := os.Lstat(path)
 	if err != nil {
 		return "", 0, err
@@ -52,8 +65,13 @@ func digestRegular(path string, expectedSize int64) (string, int64, error) {
 	if !opened.Mode().IsRegular() || !os.SameFile(entry, opened) || opened.Size() != expectedSize {
 		return "", 0, fmt.Errorf("cached Creator artifact changed identity or size while opening: %s", path)
 	}
+
 	hash := sha256.New()
-	n, err := io.Copy(hash, io.LimitReader(file, expectedSize+1))
+	var target io.Writer = hash
+	if staging != nil {
+		target = io.MultiWriter(staging, hash)
+	}
+	n, err := io.Copy(target, io.LimitReader(file, expectedSize+1))
 	if err != nil {
 		return "", 0, err
 	}
