@@ -1,6 +1,8 @@
 # Creator migration provenance ledger
 
-This ledger records origin independently of chat. It is **NOT** evidence that a source migration has finished.
+**Historical evidence, not the current project status.** The table and date-stamped entries below record the original 2026-10-23 migration checkpoints; fields marked OPEN/DRAFT or PENDING describe those historical snapshots only. The later verified OS PRs #2197, #2222 and #2000 completed C5/C6, and Creator Core plus native Windows acceptance are integrated. The Creator `main` on 2026-11-01 is `58c0f33fa3f0d511867f1c3a8b3d573af2370843`; its three post-merge workflows passed. Product version authority remains `version.json` (`0.6.3-dev`). **Signed public distribution, physical-device authorization and real USB write/readback are not implied.** For the current owner boundary and migration status, use [ARCHITECTURE.md](ARCHITECTURE.md) and [MIGRATION.md](MIGRATION.md), rather than treating an early receipt as an open task.
+
+This ledger records origin independently of chat; ancestry evidence does not itself confer release authority.
 
 | Item | Identity / state |
 | --- | --- |
