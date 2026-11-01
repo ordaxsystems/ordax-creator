@@ -20,6 +20,7 @@ const (
 	msgExperienceErrorTitle      creatorMessageID = "creator.experience.error.title"
 	msgExperienceErrorBody       creatorMessageID = "creator.experience.error.body"
 	msgActionRetry               creatorMessageID = "creator.action.retry"
+	msgActionFailureDetails      creatorMessageID = "creator.action.failureDetails"
 	msgActionClose               creatorMessageID = "creator.action.close"
 	msgCompleteEyebrow           creatorMessageID = "creator.experience.complete.eyebrow"
 	msgCompleteTitle             creatorMessageID = "creator.experience.complete.title"
@@ -139,6 +140,7 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgExperienceErrorTitle:      "Não foi possível continuar",
 	msgExperienceErrorBody:       "O Creator interrompeu o processo antes de fazer algo inseguro.",
 	msgActionRetry:               "Tentar novamente",
+	msgActionFailureDetails:      "Detalhes da falha",
 	msgActionClose:               "Fechar",
 	msgCompleteEyebrow:           "Tudo pronto",
 	msgCompleteTitle:             "Seu OrdaX USB foi criado",
@@ -258,6 +260,7 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgExperienceErrorTitle:      "Unable to continue",
 	msgExperienceErrorBody:       "Creator stopped the process before doing anything unsafe.",
 	msgActionRetry:               "Try again",
+	msgActionFailureDetails:      "Failure details",
 	msgActionClose:               "Close",
 	msgCompleteEyebrow:           "All set",
 	msgCompleteTitle:             "Your OrdaX USB is ready",
