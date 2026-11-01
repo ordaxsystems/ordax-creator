@@ -5,7 +5,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
+
+	"github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 const physicalProgressSchema = "prototype-ordax.creator-physical-progress/1"
@@ -29,14 +30,9 @@ func readPhysicalProgress(path string) (physicalProgressDocument, error) {
 	if path == "" {
 		return physicalProgressDocument{}, fmt.Errorf("progress path is empty")
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return physicalProgressDocument{}, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 4096 {
-		return physicalProgressDocument{}, fmt.Errorf("progress snapshot is not a small regular file")
-	}
-	data, err := os.ReadFile(path)
+	// The elevated helper may update this path while the UI polls it.
+	// Read from the same opened, identity-checked descriptor with a hard cap.
+	data, err := safefile.ReadBoundedRegular(path, 4096)
 	if err != nil {
 		return physicalProgressDocument{}, err
 	}
