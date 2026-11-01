@@ -23,7 +23,7 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 
 ## Shared cache directory policy
 
-All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symlink, junction/reparse-point equivalent exposed as a symlink by the host, or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
+All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symbolic link or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
 
 ## Evidence and release gates
 
