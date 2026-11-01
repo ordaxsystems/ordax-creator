@@ -108,4 +108,44 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
     }
     t.Log("Locale change and queued completion kept write unavailable during synthetic refresh")
 
+    // Exercise actual owner-drawn update controls, without starting a
+    // network request, physical discovery, elevation or writing.
+    refreshInProgress = false
+    updateMu.Lock()
+    savedUpdateState := currentUpdateState
+    updateMu.Unlock()
+    defer func() {
+        updateMu.Lock()
+        currentUpdateState = savedUpdateState
+        updateMu.Unlock()
+    }()
+    for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+        setCreatorLocale(string(locale))
+        for _, tc := range []struct {
+            state updateUIState
+            message creatorMessageID
+            enabled bool
+        }{
+            {updateUIState{}, msgUpdateControl, true},
+            {updateUIState{Checking: true}, msgUpdateChecking, false},
+            {updateUIState{Error: "network offline"}, msgUpdateRetryAction, true},
+            {updateUIState{Checked: true}, msgUpdateCurrentAction, true},
+            {updateUIState{Checked: true, Available: true}, msgUpdateAvailableAction, true},
+        } {
+            updateMu.Lock()
+            currentUpdateState = tc.state
+            updateMu.Unlock()
+            renderUpdateUI()
+            if label := creatorControlCaption(updateButton); label != creatorT(tc.message) {
+                t.Fatalf("locale %s native update caption = %q, want %q", locale, label, creatorT(tc.message))
+            }
+            enabled, _, _ := user32.NewProc("IsWindowEnabled").Call(updateButton)
+            if (enabled != 0) != tc.enabled {
+                t.Fatalf("locale %s update button enabled=%t, want %t for %s", locale, enabled != 0, tc.enabled, tc.message)
+            }
+        }
+    }
+    t.Log("Native update controls reflect retry, current and available states in both locales without external I/O")
+
+
 }

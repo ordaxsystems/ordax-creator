@@ -108,3 +108,72 @@ func TestAvailableUpdateNeverReplacesInstalledVersionLabel(t *testing.T) {
 		t.Fatalf("advertised update masqueraded as installed: got %q, want %q", creatorVersionText, installed)
 	}
 }
+
+
+func TestOwnerUpdateCheckActionStates(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		state updateUIState
+		want creatorMessageID
+		enabled bool
+	}{
+		{"uninitialized", updateUIState{}, msgUpdateControl, true},
+		{"checking", updateUIState{Checking: true}, msgUpdateChecking, false},
+		{"network-error", updateUIState{Error: "network unavailable"}, msgUpdateRetryAction, true},
+		{"lineage-error-over-available", updateUIState{Available: true, Checked: true, Error: "untrusted lineage"}, msgUpdateRetryAction, true},
+		{"available", updateUIState{Available: true, Checked: true}, msgUpdateAvailableAction, true},
+		{"not-newer", updateUIState{Checked: true}, msgUpdateCurrentAction, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, enabled := ownerUpdateAction(tc.state)
+			if got != tc.want || enabled != tc.enabled {
+				t.Fatalf("owner action = %s enabled=%t, want %s enabled=%t", got, enabled, tc.want, tc.enabled)
+			}
+		})
+	}
+}
+
+func TestOwnerUpdateCheckDialogsDeferDuringWriteOrRefresh(t *testing.T) {
+	for _, state := range []updateUIState{
+		{Manual: true, Checked: true, Available: true},
+		{Manual: true, Checked: true},
+		{Manual: true, Error: "offline"},
+	} {
+		if !ownerUpdateMayShowDialog(state, false, false) {
+			t.Fatalf("completed manual result cannot be reviewed while idle: %+v", state)
+		}
+		for _, tc := range []struct { writing, refreshing bool }{
+			{true, false}, {false, true}, {true, true},
+		} {
+			if ownerUpdateMayShowDialog(state, tc.writing, tc.refreshing) {
+				t.Fatalf("manual update modal interrupted another operation: %+v %+v", state, tc)
+			}
+		}
+	}
+	for _, state := range []updateUIState{
+		{},
+		{Manual: true},
+		{Manual: true, Checking: true},
+		{Checked: true, Available: true},
+		{Error: "offline"},
+	} {
+		if ownerUpdateMayShowDialog(state, false, false) {
+			t.Fatalf("unrequested or incomplete check opened a modal: %+v", state)
+		}
+	}
+}
+
+func TestOwnerUpdateCheckMessagesAreLocalizedAndReadOnly(t *testing.T) {
+	for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+		for _, id := range []creatorMessageID{msgUpdateRetryAction, msgUpdateCurrentAction, msgUpdateFailedBody, msgUpdateCurrentBody} {
+			got := creatorMessageFor(locale, id, nil)
+			if got == "" || got == string(id) {
+				t.Fatalf("missing update state message %q for locale %s", id, locale)
+			}
+		}
+	}
+	failure := creatorMessageFor(creatorLocaleENUS, msgUpdateFailedBody, nil)
+	if !strings.Contains(failure, "check") || !strings.Contains(failure, "not changed") {
+		t.Fatalf("update check failure wrongly implies an installation was attempted: %q", failure)
+	}
+}

@@ -70,6 +70,8 @@ const (
 	msgUpdateChecking            creatorMessageID = "creator.update.checking"
 	msgUpdateAvailableAction     creatorMessageID = "creator.update.availableAction"
 	msgUpdateControl             creatorMessageID = "creator.update.control"
+	msgUpdateRetryAction         creatorMessageID = "creator.update.retryAction"
+	msgUpdateCurrentAction       creatorMessageID = "creator.update.currentAction"
 	msgProgressStartingStatus    creatorMessageID = "creator.progress.starting.status"
 	msgProgressStartingHint      creatorMessageID = "creator.progress.starting.hint"
 	msgProgressElevationStatus   creatorMessageID = "creator.progress.elevation.status"
@@ -178,6 +180,8 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgFieldLanguage:             "Idioma",
 	msgUpdateChecking:            "Procurando…",
 	msgUpdateControl:             "Atualizações",
+	msgUpdateRetryAction:         "Tentar de novo",
+	msgUpdateCurrentAction:       "Em dia",
 	msgProgressStartingStatus:    "Iniciando gravação elevada…",
 	msgProgressStartingHint:      "O Creator abriu o backend autorizado e está iniciando as verificações finais.",
 	msgProgressElevationStatus:   "Confirmando autorização do Windows…",
@@ -223,8 +227,8 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgUpdateDevChannelBody:      "Este build usa o canal de desenvolvimento. O Creator gravável possui o canal de atualização próprio.",
 	msgUpdateAvailableTitle:      "Atualização disponível",
 	msgUpdateAvailableAction:     "Atualização disponível",
-	msgUpdateFailedBody:          "Não foi possível concluir a atualização. A versão atual permanece preservada.",
-	msgUpdateCurrentBody:         "Você já está usando a versão mais recente do OrdaX Creator.",
+	msgUpdateFailedBody:          "Não foi possível verificar novas versões. A instalação atual não foi alterada. Confira a conexão e tente novamente.",
+	msgUpdateCurrentBody:         "Nenhuma versão mais recente foi encontrada no canal do Creator. A instalação atual permanece inalterada.",
 	msgUpdateBundleManualBody:    "Há uma nova versão no bundle oficial do OrdaX Creator. Este canal ainda não permite atualização automática dentro do app; baixe o novo OrdaX-Creator-Owner-Prototype.zip da release oficial e substitua o bundle extraído completo. Não substitua apenas o EXE da interface.",
 	msgUpdateVersionComparison:    "Instalado: {installed} ({installed_commit})\nDisponível: {available} ({available_commit})",
 	msgPortablePlanStatus:        "Validando o plano Portable…",
@@ -287,6 +291,8 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgFieldLanguage:             "Language",
 	msgUpdateChecking:            "Checking…",
 	msgUpdateControl:             "Updates",
+	msgUpdateRetryAction:         "Retry check",
+	msgUpdateCurrentAction:       "Up to date",
 	msgProgressStartingStatus:    "Starting elevated write…",
 	msgProgressStartingHint:      "Creator opened the authorized backend and is starting the final checks.",
 	msgProgressElevationStatus:   "Confirming Windows authorization…",
@@ -332,8 +338,8 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgUpdateDevChannelBody:      "This build uses the development channel. The write-capable Creator has its own update channel.",
 	msgUpdateAvailableTitle:      "Update available",
 	msgUpdateAvailableAction:     "Update available",
-	msgUpdateFailedBody:          "The update could not be completed. The current version remains preserved.",
-	msgUpdateCurrentBody:         "You are already using the latest OrdaX Creator version.",
+	msgUpdateFailedBody:          "Unable to check for new versions. Your installed version was not changed. Check your connection and try again.",
+	msgUpdateCurrentBody:         "No newer version was found on the Creator channel. Your installed version remains unchanged.",
 	msgUpdateBundleManualBody:    "A new version is available in the official OrdaX Creator bundle. This channel does not yet allow automatic in-app updates; download the new OrdaX-Creator-Owner-Prototype.zip from the official release and replace the complete extracted bundle. Do not replace only the UI executable.",
 	msgUpdateVersionComparison:    "Installed: {installed} ({installed_commit})\nAvailable: {available} ({available_commit})",
 	msgPortablePlanStatus:        "Validating the Portable plan…",

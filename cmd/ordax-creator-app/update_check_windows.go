@@ -42,6 +42,7 @@ type ownerUpdateManifest struct {
 
 type updateUIState struct {
 	Checking     bool
+	Checked      bool
 	Manual       bool
 	Available    bool
 	Version      string
@@ -213,6 +214,7 @@ func beginUpdateCheck(manual bool) {
 				state.Error = forwardErr.Error()
 			} else {
 				state.Available = forward
+				state.Checked = true
 			}
 		}
 		updateMu.Lock()
@@ -247,6 +249,31 @@ func showOwnerUpdateManualMessage(state updateUIState) {
 		creatorT(msgUpdateAvailableTitle), mbOK|mbIconInformation)
 }
 
+// The dedicated update control represents the outcome of the *check*, not
+// an installation. Completed checks may be repeated, and an unsuccessful
+// network/trust check must offer retry without declaring the build current.
+func ownerUpdateAction(state updateUIState) (creatorMessageID, bool) {
+	switch {
+	case state.Checking:
+		return msgUpdateChecking, false
+	case state.Error != "":
+		return msgUpdateRetryAction, true
+	case state.Available:
+		return msgUpdateAvailableAction, true
+	case state.Checked:
+		return msgUpdateCurrentAction, true
+	default:
+		return msgUpdateControl, true
+	}
+}
+
+// An asynchronous manual result must never open a modal dialog over a
+// physical write or USB refresh. The result remains in the button state so
+// the user can review or recheck when the system is idle.
+func ownerUpdateMayShowDialog(state updateUIState, writing, refreshing bool) bool {
+	return state.Manual && !state.Checking && (state.Checked || state.Error != "") && !writing && !refreshing
+}
+
 func renderUpdateUI() {
 	if updateButton == 0 {
 		return
@@ -258,18 +285,9 @@ func renderUpdateUI() {
 		enable(updateButton, false)
 		return
 	}
-	if state.Checking {
-		setText(updateButton, creatorT(msgUpdateChecking))
-		enable(updateButton, false)
-		return
-	}
-	if state.Available && state.Error == "" {
-		setText(updateButton, creatorT(msgUpdateAvailableAction))
-		enable(updateButton, true)
-		return
-	}
-	setText(updateButton, creatorT(msgUpdateControl))
-	enable(updateButton, true)
+	action, enabled := ownerUpdateAction(state)
+	setText(updateButton, creatorT(action))
+	enable(updateButton, enabled)
 }
 
 func renderUpdateDone() {
@@ -277,23 +295,22 @@ func renderUpdateDone() {
 	state := currentUpdateState
 	updateMu.Unlock()
 	renderUpdateUI()
+	if !ownerUpdateMayShowDialog(state, writeInProgress(), refreshInProgress) {
+		return
+	}
 
 	if state.Available && state.Error == "" {
 		// Never replace the installed build label with the candidate version.
 		// The button owns availability, and the manual dialog owns the
 		// comparison; installation is unchanged until externally updated.
-		if state.Manual {
-			showOwnerUpdateManualMessage(state)
-		}
+		showOwnerUpdateManualMessage(state)
 		return
 	}
 	if state.Error != "" {
-		if state.Manual {
-			messageBox(creatorT(msgUpdateFailedBody), windowTitle, mbOK|mbIconError)
-		}
+		messageBox(creatorT(msgUpdateFailedBody), windowTitle, mbOK|mbIconError)
 		return
 	}
-	if state.Manual {
+	if state.Checked {
 		messageBox(creatorT(msgUpdateCurrentBody), windowTitle, mbOK|mbIconInformation)
 	}
 }
