@@ -222,37 +222,39 @@ func reusePortablePayloadArtifact(versionsRoot string, binding PortablePayloadAr
 			continue
 		}
 		sourcePath := filepath.Join(sourceRoot, binding.ID)
-		// Skip oversized, undersized and unsafe donor files before hashing.
-		// The final digest and copy-time rehash remain mandatory for a match.
+		// The inexpensive stat is only a candidate filter. The actual copy
+		// must independently verify the opened file identity and its signed
+		// size, then hash the SAME descriptor while writing staging bytes.
+		// This avoids a second path open and a second full 16-GiB read.
 		info, err := os.Lstat(sourcePath)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() != binding.SizeBytes {
 			continue
 		}
-		digest, size, err := safefile.DigestBoundRegular(sourcePath, binding.SizeBytes)
-		if err != nil || digest != binding.SHA256 || size != binding.SizeBytes {
-			continue
-		}
-		source, err := os.Open(sourcePath)
-		if err != nil {
-			return false, err
-		}
 		dest, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err != nil {
-			_ = source.Close()
 			return false, err
 		}
-		h := sha256.New()
-		n, copyErr := io.Copy(io.MultiWriter(dest, h), io.LimitReader(source, binding.SizeBytes+1))
-		closeSourceErr := source.Close()
-		syncErr := error(nil)
-		if copyErr == nil {
-			syncErr = dest.Sync()
-		}
-		closeDestErr := dest.Close()
-		if copyErr != nil || closeSourceErr != nil || syncErr != nil || closeDestErr != nil ||
-			n != binding.SizeBytes || hex.EncodeToString(h.Sum(nil)) != binding.SHA256 {
+		digest, n, copyErr := safefile.CopyBoundRegular(sourcePath, binding.SizeBytes, dest)
+		if copyErr != nil || n != binding.SizeBytes || digest != binding.SHA256 {
+			_ = dest.Close()
 			_ = os.Remove(destination)
-			return false, fmt.Errorf("previous Portable artifact changed during verified reuse: %s", binding.ID)
+			if copyErr != nil {
+				// A donor changed identity/size while opening or reading,
+				// or staging failed: do not silently treat a race as cache miss.
+				return false, fmt.Errorf("previous Portable artifact changed during verified reuse %s: %w", binding.ID, copyErr)
+			}
+			// A stable but stale/corrupted donor is not trusted: try another
+			// candidate slot or the canonical signed artifact download.
+			continue
+		}
+		if err := dest.Sync(); err != nil {
+			_ = dest.Close()
+			_ = os.Remove(destination)
+			return false, fmt.Errorf("sync copied Portable artifact %s: %w", binding.ID, err)
+		}
+		if err := dest.Close(); err != nil {
+			_ = os.Remove(destination)
+			return false, fmt.Errorf("close copied Portable artifact %s: %w", binding.ID, err)
 		}
 		return true, nil
 	}
