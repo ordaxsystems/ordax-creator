@@ -1,7 +1,9 @@
 package appchannel
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"errors"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -237,5 +239,98 @@ func TestSignedAppRejectsSymlinkedVersionsRootAcrossReadAndPending(t *testing.T)
 	}
 	if _, _, err := AcquirePending(client, root, DefaultEnvelopeURL, trust, trustSHA); err == nil {
 		t.Fatal("pending signed app followed redirected versions root")
+	}
+}
+
+
+type signedAppTestTransport func(*http.Request) (*http.Response, error)
+
+func (fn signedAppTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+// Only signed local fixtures and an in-memory HTTP transport are used here.
+// The official launcher has an independent LastKnownGood fallback; this
+// cache API may never report an unconfirmed candidate as a successful update.
+func TestSignedAppCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
+	for _, mode := range []string{
+		"stable", "network-failure", "http-failure",
+		"changed-signed-artifact", "invalid-second-signature", "pointer-write-failure",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			trust, private, trustSHA := testTrust(t)
+			body := []byte("valid-signed-app-fixture")
+			manifest := validManifest(body, "7777777777777777777777777777777777777777", 7)
+			dir := filepath.Join(root, "versions", manifest.SourceCommit)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, ArtifactName), body, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			first := signedEnvelope(t, manifest, private)
+			second := first
+			switch mode {
+			case "changed-signed-artifact":
+				rebound := manifest
+				rebound.Artifact.SHA256 = strings.Repeat("a", 64)
+				second = signedEnvelope(t, rebound, private)
+			case "invalid-second-signature":
+				var altered Envelope
+				if err := json.Unmarshal(first, &altered); err != nil {
+					t.Fatal(err)
+				}
+				altered.Signature[0] ^= 0xff
+				var err error
+				second, err = json.Marshal(altered)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			requests := 0
+			client := &http.Client{Transport: signedAppTestTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				if req.URL.Host != "github.com" || req.URL.Path != "/ordaxsystems/ordax-os/releases/download/creator-app/creator-app-envelope.json" || requests > 2 {
+					return nil, errors.New("unexpected signed app test URL or third request")
+				}
+				if requests == 2 {
+					switch mode {
+					case "network-failure":
+						return nil, errors.New("synthetic signed app network failure")
+					case "http-failure":
+						return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header), Request: req}, nil
+					case "pointer-write-failure":
+						if err := os.Mkdir(filepath.Join(root, currentEnvelopeName), 0o700); err != nil {
+							return nil, err
+						}
+					}
+				}
+				data := first
+				if requests == 2 {
+					data = second
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(data)), Header: make(http.Header), Request: req}, nil
+			})}
+			got, changed, err := AcquireCached(client, root, DefaultEnvelopeURL, trust, trustSHA)
+			if requests != 2 {
+				t.Fatalf("expected two independent envelope fetches, got %d, err=%v", requests, err)
+			}
+			if mode == "stable" {
+				if err != nil || changed || got.SourceCommit != manifest.SourceCommit {
+					t.Fatalf("stable signed app cache changed=%t installed=%+v err=%v", changed, got, err)
+				}
+				if _, err := Current(root, trust, trustSHA); err != nil {
+					t.Fatalf("valid cache pointer did not activate: %v", err)
+				}
+			} else {
+				if err == nil || changed || got.SourceCommit != "" {
+					t.Fatalf("unconfirmed signed app was returned as success: changed=%t installed=%+v err=%v", changed, got, err)
+				}
+				if _, err := Current(root, trust, trustSHA); err == nil {
+					t.Fatal("unconfirmed signed app became offline current")
+				}
+			}
+		})
 	}
 }
