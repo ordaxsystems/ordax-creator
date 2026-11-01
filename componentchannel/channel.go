@@ -367,17 +367,23 @@ func extractBundle(zipPath, destination string, manifest Manifest) error {
 }
 
 
+// readSignedCurrentManifest preserves the authenticated rollback baseline
+// even if cached executable bytes are missing or damaged. It never authorizes
+// execution: Current still performs the full slot and SHA-256 verification.
+func readSignedCurrentManifest(root string, trustBytes []byte, expectedTrustSHA256 string) (Manifest, error) {
+	envelopeBytes, err := safefile.ReadBoundedRegular(filepath.Join(root, currentEnvelopeName), maxEnvelopeBytes)
+	if err != nil {
+		return Manifest{}, err
+	}
+	return VerifyEnvelope(envelopeBytes, trustBytes, expectedTrustSHA256)
+}
+
 func Current(root string, trustBytes []byte, expectedTrustSHA256 string) (Installed, error) {
 	root, err := componentRoot(root)
 	if err != nil {
 		return Installed{}, err
 	}
-	envelopePath := filepath.Join(root, currentEnvelopeName)
-	envelopeBytes, err := safefile.ReadBoundedRegular(envelopePath, maxEnvelopeBytes)
-	if err != nil {
-		return Installed{}, err
-	}
-	manifest, err := VerifyEnvelope(envelopeBytes, trustBytes, expectedTrustSHA256)
+	manifest, err := readSignedCurrentManifest(root, trustBytes, expectedTrustSHA256)
 	if err != nil {
 		return Installed{}, err
 	}
@@ -391,17 +397,20 @@ func Current(root string, trustBytes []byte, expectedTrustSHA256 string) (Instal
 	return Installed{Version: manifest.Version, SourceCommit: manifest.SourceCommit, ReleaseSequence: manifest.ReleaseSequence, Directory: directory, Manifest: manifest}, nil
 }
 
+// A damaged cached executable must not erase the release sequence already
+// authenticated by the signed pointer. Reject an invalid pointer, but allow a
+// different newer signed commit to repair a corrupted component version slot.
 func checkRollback(root string, candidate Manifest, trustBytes []byte, expectedTrustSHA256 string) error {
-	current, err := Current(root, trustBytes, expectedTrustSHA256)
+	current, err := readSignedCurrentManifest(root, trustBytes, expectedTrustSHA256)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("existing Creator component baseline is invalid; refusing rollback-sensitive update: %w", err)
+		return fmt.Errorf("existing signed Creator component baseline is invalid; refusing rollback-sensitive update: %w", err)
 	}
 	return releaseidentity.Check("Creator component",
 		candidate.SourceCommit, candidate.ReleaseSequence, candidate,
-		current.SourceCommit, current.ReleaseSequence, current.Manifest)
+		current.SourceCommit, current.ReleaseSequence, current)
 }
 
 func AcquireCached(client *http.Client, root, envelopeURL string, trustBytes []byte, expectedTrustSHA256 string) (Installed, bool, error) {
