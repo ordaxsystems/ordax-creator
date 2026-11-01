@@ -20,6 +20,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 )
 
 const (
@@ -532,8 +534,8 @@ func Acquire(client *http.Client, root, envelopeURL string, trustBytes []byte, e
 			}
 		}
 	}
-	versions := filepath.Join(root, "versions")
-	if err := os.MkdirAll(versions, 0o755); err != nil {
+	versions, err := cachepath.EnsureVersions(root)
+	if err != nil {
 		return Installed{}, false, err
 	}
 	finalDir := filepath.Join(versions, manifest.SourceCommit)
