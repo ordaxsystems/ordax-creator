@@ -334,3 +334,25 @@ func TestSignedAppCachedActivationRequiresSecondStableEnvelope(t *testing.T) {
 		})
 	}
 }
+
+func TestSignedAppRejectsNoncanonicalReleaseAssetURL(t *testing.T) {
+	trust, private, trustSHA := testTrust(t)
+	m := validManifest([]byte("app"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	for _, badURL := range []string{
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/OrdaX-Creator-App.exe?",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/OrdaX-Creator-App.exe?download=1",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/OrdaX-Creator-App%2Eexe",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/OrdaX-Creator-App.exe#fragment",
+		"https://github.com/ordaxsystems/ordax-os/releases/download/creator-app/nested/OrdaX-Creator-App.exe",
+		"https://github.com.evil.example/ordaxsystems/ordax-os/releases/download/creator-app/OrdaX-Creator-App.exe",
+	} {
+		m.Artifact.URL = badURL
+		if _, err := VerifyEnvelope(signedEnvelope(t, m, private), trust, trustSHA); err == nil {
+			t.Errorf("noncanonical signed asset URL %q accepted", badURL)
+		}
+	}
+	m.Artifact.URL = ArtifactURL
+	if _, err := VerifyEnvelope(signedEnvelope(t, m, private), trust, trustSHA); err != nil {
+		t.Fatalf("canonical signed asset URL rejected: %v", err)
+	}
+}
