@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ const (
 	maxPayloadBytes        = int64(128 << 20)
 	maxExtractedBytes      = int64(256 << 20)
 	maxArchiveFileCount    = 128
-	maxInstalledPointerBytes = 16 << 10
+	maxInstalledPointerBytes = 128 << 10
 )
 
 var (
@@ -75,12 +76,20 @@ type legacyManifestV1 struct {
 	Entrypoints  legacyEntrypointsV1 `json:"entrypoints"`
 }
 
+type InstalledFile struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
 type Installed struct {
-	Schema       string `json:"$schema"`
-	Channel      string `json:"channel"`
-	Version      string `json:"version"`
-	SourceCommit string `json:"source_commit"`
-	Directory    string `json:"directory"`
+	Schema        string          `json:"$schema"`
+	Channel       string          `json:"channel"`
+	Version       string          `json:"version"`
+	SourceCommit  string          `json:"source_commit"`
+	Directory     string          `json:"directory"`
+	PayloadSHA256 string          `json:"payload_sha256"`
+	Files         []InstalledFile `json:"files"`
 }
 
 func installRoot() (string, error) {
@@ -420,6 +429,70 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
+// An unsigned development receipt detects cached byte changes only; it is
+// never evidence of publisher trust or physical-write authorization.
+func installedFileInventory(directory string) ([]InstalledFile, error) {
+	info, err := os.Lstat(directory)
+	if err != nil { return nil, err }
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("Creator development directory is unsafe")
+	}
+	files := make([]InstalledFile, 0, 8)
+	var total int64
+	err = filepath.WalkDir(directory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil { return walkErr }
+		if path == directory { return nil }
+		rel, err := filepath.Rel(directory, path)
+		if err != nil { return err }
+		name := filepath.ToSlash(rel)
+		if !safeRelative(name) { return fmt.Errorf("unsafe cached Creator path %q", name) }
+		if entry.IsDir() { return nil }
+		if !entry.Type().IsRegular() || entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsafe cached Creator file %q", name)
+		}
+		if len(files) >= maxArchiveFileCount { return errors.New("Creator cache exceeds file limit") }
+		fileInfo, err := entry.Info()
+		if err != nil { return err }
+		if fileInfo.Size() < 0 || fileInfo.Size() > maxExtractedBytes-total {
+			return errors.New("Creator cache exceeds size limit")
+		}
+		file, err := os.Open(path)
+		if err != nil { return err }
+		hash := sha256.New()
+		n, readErr := io.Copy(hash, io.LimitReader(file, fileInfo.Size()+1))
+		closeErr := file.Close()
+		if readErr != nil { return readErr }
+		if closeErr != nil { return closeErr }
+		if n != fileInfo.Size() { return fmt.Errorf("cached Creator file %q changed while reading", name) }
+		total += n
+		files = append(files, InstalledFile{Path:name, Size:n, SHA256:hex.EncodeToString(hash.Sum(nil))})
+		return nil
+	})
+	if err != nil { return nil, err }
+	if len(files) == 0 { return nil, errors.New("Creator cache has no files") }
+	sort.Slice(files, func(i,j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
+
+func sameInstalledFiles(a,b []InstalledFile) bool {
+	if len(a) == 0 || len(a) != len(b) { return false }
+	for i := range a { if a[i] != b[i] { return false } }
+	return true
+}
+
+func verifyInstalledFiles(installed Installed) error {
+	if !shaPattern.MatchString(installed.PayloadSHA256) ||
+		len(installed.Files) == 0 || len(installed.Files) > maxArchiveFileCount {
+		return errors.New("Creator development cache lacks verified payload receipt")
+	}
+	actual, err := installedFileInventory(installed.Directory)
+	if err != nil { return err }
+	if !sameInstalledFiles(installed.Files,actual) {
+		return errors.New("Creator development cache file integrity mismatch")
+	}
+	return nil
+}
+
 func safeInstalledVersionsRoot(root string) error {
 	directory := filepath.Join(root, "versions")
 	info, err := os.Lstat(directory)
@@ -487,6 +560,9 @@ func Current(root string) (Installed, error) {
 	info, err := os.Lstat(current.Directory)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return Installed{}, errors.New("installed Creator directory is unavailable or unsafe")
+	}
+	if err := verifyInstalledFiles(current); err != nil {
+		return Installed{}, err
 	}
 	return current, nil
 }
