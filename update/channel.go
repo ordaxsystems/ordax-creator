@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ordaxsystems/ordax-creator/internal/archivebounds"
 	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 	"github.com/ordaxsystems/ordax-creator/internal/cachepath"
 	"github.com/ordaxsystems/ordax-creator/internal/safefile"
@@ -383,9 +384,9 @@ func extractPayload(zipPath, destination string, manifest Manifest) error {
 		if item.FileInfo().Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink is forbidden in update archive: %q", item.Name)
 		}
-		total += int64(item.UncompressedSize64)
-		if total > maxExtractedBytes {
-			return errors.New("archive expands beyond allowed size")
+		total, err = archivebounds.Add(total, item.UncompressedSize64, maxExtractedBytes)
+		if err != nil {
+			return fmt.Errorf("development ZIP entry %q: %w", item.Name, err)
 		}
 		target := filepath.Join(destination, cleanName)
 		if item.FileInfo().IsDir() {
@@ -406,7 +407,7 @@ func extractPayload(zipPath, destination string, manifest Manifest) error {
 			_ = r.Close()
 			return err
 		}
-		_, copyErr := io.Copy(w, r)
+		_, copyErr := archivebounds.CopyExact(w, r, item.UncompressedSize64)
 		closeWriteErr := w.Close()
 		closeReadErr := r.Close()
 		if copyErr != nil {

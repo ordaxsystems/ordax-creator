@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -465,4 +466,26 @@ func TestVerifyEnvelopeRejectsNonCanonicalPhysicalBundleURLs(t *testing.T) {
 			}
 		})
 	}
+}
+
+
+func TestPhysicalZIPRejectsForgedOverBudgetHeaderBeforeWritingFiles(t *testing.T) {
+	zipPath := zipWithEntries(t, map[string][]byte{"ordax-creator-physical-test.exe": []byte("tiny")})
+	body, err := os.ReadFile(zipPath)
+	if err != nil { t.Fatal(err) }
+	central := bytes.Index(body, []byte("PK\x01\x02"))
+	if central < 0 || central+28 > len(body) { t.Fatal("ZIP central directory header missing") }
+	binary.LittleEndian.PutUint32(body[central+24:central+28], uint32(maxExtractedBytes+1))
+	if err := os.WriteFile(zipPath, body, 0o600); err != nil { t.Fatal(err) }
+	archive, err := zip.OpenReader(zipPath)
+	if err != nil { t.Fatalf("forged ZIP header was not parsed: %v", err) }
+	headerSize := archive.File[0].UncompressedSize64
+	_ = archive.Close()
+	if headerSize != uint64(maxExtractedBytes+1) {t.Fatalf("forged header not applied: %d",headerSize)}
+	dest := t.TempDir()
+	if err := extractBundle(zipPath,dest,validManifest()); err == nil || !strings.Contains(err.Error(), "ZIP expanded size") {
+		t.Fatalf("over-budget physical archive was accepted: %v",err)
+	}
+	files, err := os.ReadDir(dest)
+	if err != nil || len(files) != 0 {t.Fatalf("physical ZIP should not create files before size gate: files=%v err=%v",files,err)}
 }
