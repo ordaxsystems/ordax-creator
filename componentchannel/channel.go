@@ -117,7 +117,8 @@ func decodeStrict(data []byte, max int, target any) error {
 
 func validateBundleURL(raw string) error {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Opaque != "" || parsed.EscapedPath() != parsed.Path {
 		return errors.New("component bundle URL must be canonical HTTPS github.com URL")
 	}
 	if parsed.Path != releasePathPrefix+bundleName {
