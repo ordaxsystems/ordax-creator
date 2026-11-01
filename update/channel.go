@@ -31,6 +31,7 @@ const (
 	maxPayloadBytes      = int64(128 << 20)
 	maxExtractedBytes    = int64(256 << 20)
 	maxArchiveFileCount  = 128
+	maxInstalledPointerBytes = 16 << 10
 )
 
 var (
@@ -99,8 +100,13 @@ func safeRelative(name string) bool {
 	// The development payload is unpacked on Windows. Validate Windows path
 	// semantics even when CI runs on Linux, before touching the filesystem.
 	if name == "" || filepath.IsAbs(name) || strings.HasPrefix(name, "/") ||
-		strings.ContainsAny(name, "\\:\x00") {
+		strings.ContainsAny(name, "\\:<>\"|?*\x00") {
 		return false
+	}
+	for _, ch := range name {
+		if ch < 0x20 {
+			return false
+		}
 	}
 	for _, segment := range strings.Split(name, "/") {
 		if segment == "" || segment == "." || segment == ".." ||
@@ -347,10 +353,16 @@ func extractPayload(zipPath, destination string, manifest Manifest) error {
 	seen := make(map[string]struct{}, len(archive.File))
 	var total int64
 	for _, item := range archive.File {
-		if !safeRelative(item.Name) {
+		name := item.Name
+		// ZIP directories conventionally end in "/"; validate the normalized
+		// path, not the marker, on Linux and Windows alike.
+		if item.FileInfo().IsDir() {
+			name = strings.TrimSuffix(name, "/")
+		}
+		if !safeRelative(name) {
 			return fmt.Errorf("unsafe archive path %q", item.Name)
 		}
-		cleanName := filepath.Clean(filepath.FromSlash(item.Name))
+		cleanName := filepath.Clean(filepath.FromSlash(name))
 		// Windows paths are case-insensitive; reject aliases even in Linux CI.
 		caseFolded := strings.ToLower(cleanName)
 		if _, exists := seen[caseFolded]; exists {
@@ -408,6 +420,18 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
+func safeInstalledVersionsRoot(root string) error {
+	directory := filepath.Join(root, "versions")
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("installed Creator versions directory is unsafe")
+	}
+	return nil
+}
+
 func Current(root string) (Installed, error) {
 	if root == "" {
 		var err error
@@ -416,9 +440,29 @@ func Current(root string) (Installed, error) {
 			return Installed{}, err
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(root, "current.json"))
+	pointer := filepath.Join(root, "current.json")
+	pointerInfo, err := os.Lstat(pointer)
 	if err != nil {
 		return Installed{}, err
+	}
+	if !pointerInfo.Mode().IsRegular() || pointerInfo.Mode()&os.ModeSymlink != 0 ||
+		pointerInfo.Size() <= 0 || pointerInfo.Size() > maxInstalledPointerBytes {
+		return Installed{}, errors.New("installed Creator pointer is unsafe")
+	}
+	pointerFile, err := os.Open(pointer)
+	if err != nil {
+		return Installed{}, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(pointerFile, maxInstalledPointerBytes+1))
+	closeErr := pointerFile.Close()
+	if readErr != nil {
+		return Installed{}, readErr
+	}
+	if closeErr != nil {
+		return Installed{}, closeErr
+	}
+	if len(data) == 0 || len(data) > maxInstalledPointerBytes {
+		return Installed{}, errors.New("installed Creator pointer size is invalid")
 	}
 	var current Installed
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
@@ -432,6 +476,9 @@ func Current(root string) (Installed, error) {
 	}
 	if current.Schema != "prototype-ordax.creator-installed/1" || current.Channel != DevelopmentChannel || !versionPattern.MatchString(current.Version) || !commitPattern.MatchString(current.SourceCommit) {
 		return Installed{}, errors.New("invalid installed Creator metadata")
+	}
+	if err := safeInstalledVersionsRoot(root); err != nil {
+		return Installed{}, err
 	}
 	expected := filepath.Join(root, "versions", current.SourceCommit)
 	if !samePath(current.Directory, expected) {
@@ -457,6 +504,9 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 		return Installed{}, false, err
 	}
 	if current, err := Current(root); err == nil && current.SourceCommit == manifest.SourceCommit {
+		if current.Version != manifest.Version {
+			return Installed{}, false, errors.New("installed Creator version differs from the published version for the same source commit")
+		}
 		if err := verifyEntrypoints(current.Directory, manifest); err != nil {
 			return Installed{}, false, fmt.Errorf("installed Creator payload failed validation: %w", err)
 		}
@@ -464,6 +514,9 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 	}
 	versionsDir := filepath.Join(root, "versions")
 	if err := os.MkdirAll(versionsDir, 0o755); err != nil {
+		return Installed{}, false, err
+	}
+	if err := safeInstalledVersionsRoot(root); err != nil {
 		return Installed{}, false, err
 	}
 	finalDir := filepath.Join(versionsDir, manifest.SourceCommit)
