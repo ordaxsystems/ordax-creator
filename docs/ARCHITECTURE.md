@@ -25,6 +25,12 @@ The OS's verified release consumers bind an immutable Creator source commit and 
 
 All Creator package consumers (Dev, App, Component and Physical) use `internal/cachepath` as the **single implementation** of the `versions/` cache-root boundary. Offline reads require an existing real directory; installers may create it but then independently verify it is not a symbolic link or a regular file. Each channel retains its own separate signature, artifact-integrity, rollback and authorization policy; the shared path check grants no physical-write authority.
 
+## Windows USB selection across refreshes
+
+Device discovery never implicitly selects a physical USB, even if only one target appears. The user must make an explicit selection before the GUI can expose the destructive confirmation step. A subsequent refresh may retain that explicit choice only when there is exactly one newly discovered safe target with the same non-empty device serial, disk number, physical capacity and lowercase physical confirmation token. A changed drive letter or volume label alone does not erase a provably stable choice. Missing serial, changed identity, duplicate candidates, a fatal refresh error or unready physical channel clears the selection and requires the user to choose again.
+
+This is a **presentation-only** convenience, not authorization: the elevated writer still independently validates a freshly enumerated target, signed sources, consent and the exact physical identity before writing. The existing target policy remains owned by the Windows adapter and Core; the GUI introduces no second token derivation.
+
 ## Offline cache fallback and physical readiness
 
 Windows refresh distinguishes **update availability** from **validity of installed content**. If the latest App/Component update cannot be acquired but that channel's existing `Current()` verifier accepts a complete local installation, the GUI shows a localized nonblocking cache notice instead of an error. Development caches are explicitly described as local **development** copies, never signed releases; signed Component caches are described as signed only after their existing signature validation succeeds.
