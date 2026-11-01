@@ -201,30 +201,6 @@ func appRoot(root string) (string, error) {
 	return filepath.Join(cache, "OrdaX", "Creator", "app"), nil
 }
 
-func verifyRegularFile(path string, binding Artifact) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("Creator app executable is not a regular non-symlink file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, file)
-	if err != nil {
-		return err
-	}
-	if n != binding.Size || hex.EncodeToString(h.Sum(nil)) != binding.SHA256 {
-		return errors.New("Creator app executable bytes changed after verification")
-	}
-	return nil
-}
-
 func installedFrom(root string, manifest Manifest) (Installed, error) {
 	if _, err := cachepath.Versions(root); err != nil {
 		return Installed{}, err
@@ -242,8 +218,12 @@ func installedFrom(root string, manifest Manifest) (Installed, error) {
 		return Installed{}, errors.New("Creator app version directory must contain exactly the bound executable")
 	}
 	executable := filepath.Join(directory, ArtifactName)
-	if err := verifyRegularFile(executable, manifest.Artifact); err != nil {
-		return Installed{}, err
+	digest, size, err := safefile.DigestBoundRegular(executable, manifest.Artifact.Size)
+	if err != nil {
+		return Installed{}, fmt.Errorf("Creator app executable changed or unsafe: %w", err)
+	}
+	if size != manifest.Artifact.Size || digest != manifest.Artifact.SHA256 {
+		return Installed{}, errors.New("Creator app executable bytes changed after verification")
 	}
 	return Installed{Version: manifest.Version, SourceCommit: manifest.SourceCommit, ReleaseSequence: manifest.ReleaseSequence, Directory: directory, Executable: executable, Manifest: manifest}, nil
 }
