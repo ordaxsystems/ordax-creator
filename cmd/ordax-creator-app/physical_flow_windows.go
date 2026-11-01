@@ -426,7 +426,7 @@ func runElevatedAndWait(executable, directory string, args []string, diagnosticP
 	}
 	if exitCode != 0 {
 		if diagnosticPath != "" {
-			if data, readErr := os.ReadFile(diagnosticPath); readErr == nil {
+			if data, readErr := readPhysicalDiagnostic(diagnosticPath); readErr == nil {
 				if detail := strings.TrimSpace(string(data)); detail != "" {
 					cause := fmt.Errorf("a gravação física falhou: %s", detail)
 					persistedPath, persistErr := persistPhysicalDiagnostic(diagnosticPath)
