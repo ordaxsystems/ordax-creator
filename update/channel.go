@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/ordaxsystems/ordax-creator/internal/atomicfile"
 )
 
 const (
@@ -94,24 +96,46 @@ func installRoot() (string, error) {
 }
 
 func safeRelative(name string) bool {
-	if name == "" || filepath.IsAbs(name) || strings.ContainsRune(name, '\x00') {
+	// The development payload is unpacked on Windows. Validate Windows path
+	// semantics even when CI runs on Linux, before touching the filesystem.
+	if name == "" || filepath.IsAbs(name) || strings.HasPrefix(name, "/") ||
+		strings.ContainsAny(name, "\\:\x00") {
 		return false
+	}
+	for _, segment := range strings.Split(name, "/") {
+		if segment == "" || segment == "." || segment == ".." ||
+			strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") {
+			return false
+		}
+		base := strings.ToUpper(strings.TrimRight(strings.SplitN(segment, ".", 2)[0], " "))
+		switch base {
+		case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+			"COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³":
+			return false
+		}
+		if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) &&
+			base[3] >= '1' && base[3] <= '9' {
+			return false
+		}
 	}
 	clean := filepath.Clean(filepath.FromSlash(name))
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return false
-	}
 	return clean == filepath.FromSlash(name)
 }
 
 func validateAssetURL(raw string) error {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.Fragment != "" {
-		return errors.New("payload URL must be canonical HTTPS github.com URL")
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" ||
+		parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Opaque != "" || parsed.EscapedPath() != parsed.Path {
+		return errors.New("payload URL must be a canonical HTTPS github.com release asset URL")
 	}
-	prefix := "/ordaxsystems/ordax-os/releases/download/creator-dev/"
+	const prefix = "/ordaxsystems/ordax-os/releases/download/creator-dev/"
 	if !strings.HasPrefix(parsed.Path, prefix) {
 		return errors.New("payload URL must stay inside the OrdaX creator-dev release")
+	}
+	asset := strings.TrimPrefix(parsed.Path, prefix)
+	if !safeRelative(asset) || strings.Contains(asset, "/") || !strings.HasSuffix(strings.ToLower(asset), ".zip") {
+		return errors.New("payload URL must name a single canonical ZIP asset")
 	}
 	return nil
 }
@@ -248,43 +272,6 @@ func FetchManifest(client *http.Client, manifestURL string) (Manifest, error) {
 	return decodeManifest(data)
 }
 
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	parent := filepath.Dir(path)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(parent, ".ordax-write-*")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	remove := true
-	defer func() {
-		_ = temp.Close()
-		if remove {
-			_ = os.Remove(tempPath)
-		}
-	}()
-	if _, err := temp.Write(data); err != nil {
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tempPath, mode); err != nil && runtime.GOOS != "windows" {
-		return err
-	}
-	_ = os.Remove(path)
-	if err := os.Rename(tempPath, path); err != nil {
-		return err
-	}
-	remove = false
-	return nil
-}
-
 func downloadPayload(client *http.Client, payload Payload, out string) error {
 	if client == nil {
 		client = &http.Client{Timeout: 2 * time.Minute}
@@ -364,10 +351,12 @@ func extractPayload(zipPath, destination string, manifest Manifest) error {
 			return fmt.Errorf("unsafe archive path %q", item.Name)
 		}
 		cleanName := filepath.Clean(filepath.FromSlash(item.Name))
-		if _, exists := seen[cleanName]; exists {
+		// Windows paths are case-insensitive; reject aliases even in Linux CI.
+		caseFolded := strings.ToLower(cleanName)
+		if _, exists := seen[caseFolded]; exists {
 			return fmt.Errorf("duplicate archive path %q", item.Name)
 		}
-		seen[cleanName] = struct{}{}
+		seen[caseFolded] = struct{}{}
 		if item.FileInfo().Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink is forbidden in update archive: %q", item.Name)
 		}
@@ -488,7 +477,7 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 		installed := Installed{Schema: "prototype-ordax.creator-installed/1", Channel: manifest.Channel, Version: manifest.Version, SourceCommit: manifest.SourceCommit, Directory: finalDir}
 		data, _ := json.MarshalIndent(installed, "", "  ")
 		data = append(data, '\n')
-		if err := writeAtomic(filepath.Join(root, "current.json"), data, 0o644); err != nil {
+		if err := atomicfile.Replace(filepath.Join(root, "current.json"), data); err != nil {
 			return Installed{}, false, err
 		}
 		return installed, false, nil
@@ -518,7 +507,7 @@ func Ensure(client *http.Client, root, manifestURL string) (Installed, bool, err
 	installed := Installed{Schema: "prototype-ordax.creator-installed/1", Channel: manifest.Channel, Version: manifest.Version, SourceCommit: manifest.SourceCommit, Directory: finalDir}
 	data, _ := json.MarshalIndent(installed, "", "  ")
 	data = append(data, '\n')
-	if err := writeAtomic(filepath.Join(root, "current.json"), data, 0o644); err != nil {
+	if err := atomicfile.Replace(filepath.Join(root, "current.json"), data); err != nil {
 		return Installed{}, false, err
 	}
 	return installed, true, nil

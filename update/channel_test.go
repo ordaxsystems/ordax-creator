@@ -174,3 +174,58 @@ func TestCurrentRejectsDirectoryOutsideVersionSlot(t *testing.T) {
 		t.Fatal("external current directory unexpectedly accepted")
 	}
 }
+
+
+func TestSafeRelativeRejectsAmbiguousWindowsPathsOnAllHosts(t *testing.T) {
+	for _, name := range []string{
+		"C:payload.exe", `C:\payload.exe`, `dir\payload.exe`,
+		"payload.exe:stream", "nested/NUL", "nested/CON.txt",
+		"nested/com1.exe", "nested/LPT9", "nested/COM¹",
+		"trailing.", "nested/trailing ", "a//b", "./payload.exe",
+		"../payload.exe", "/absolute/payload.exe",
+	} {
+		if safeRelative(name) {
+			t.Errorf("unsafe path %q accepted", name)
+		}
+	}
+	for _, name := range []string{"payload.zip", "bin/payload.exe", "1-Inspect-OrdaXUSB.cmd"} {
+		if !safeRelative(name) {
+			t.Errorf("canonical relative path %q rejected", name)
+		}
+	}
+}
+
+func TestValidateManifestRejectsNonCanonicalCreatorDevAssetURLs(t *testing.T) {
+	base := "https://github.com/ordaxsystems/ordax-os/releases/download/creator-dev/"
+	for _, raw := range []string{
+		base,
+		base + "payload.exe",
+		base + "subfolder/payload.zip",
+		base + "payload.zip?redirect=true",
+		base + "payload.zip?",
+		base + "payload%2Ezip",
+		base + "NUL.zip",
+		"https://github.com.evil.example/ordaxsystems/ordax-os/releases/download/creator-dev/payload.zip",
+	} {
+		m := validManifestForTest()
+		m.Payload.URL = raw
+		if err := ValidateManifest(m); err == nil {
+			t.Errorf("noncanonical release asset URL %q accepted", raw)
+		}
+	}
+}
+
+func TestExtractPayloadRejectsCaseFoldedDuplicatePaths(t *testing.T) {
+	zipPath := writeZip(t, map[string]string{
+		"payload/Component.exe": "first",
+		"payload/component.exe": "second",
+	})
+	destination := filepath.Join(t.TempDir(), "out")
+	if err := os.Mkdir(destination, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractPayload(zipPath, destination, validManifestForTest()); err == nil ||
+		!strings.Contains(err.Error(), "duplicate archive path") {
+		t.Fatalf("case-folded duplicate error = %v", err)
+	}
+}
