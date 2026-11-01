@@ -433,6 +433,13 @@ func selectedTargetIndex() int {
 func selectionExperience(state appRefreshState) creatorExperienceView {
 	index := selectedTargetIndex()
 	selected := index >= 0 && index < len(state.Targets)
+	return selectionExperienceForState(state, selected)
+}
+
+// Cached-channel notices never substitute for a verified physical writer.
+// Only fatal acquisition/target errors can turn an otherwise valid state
+// into a blocked experience; the physical readiness gate remains unchanged.
+func selectionExperienceForState(state appRefreshState, selected bool) creatorExperienceView {
 	var errorMessageID creatorMessageID
 	errorStep := 0
 	if state.Error != "" {
