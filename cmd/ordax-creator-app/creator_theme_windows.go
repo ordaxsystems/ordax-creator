@@ -11,6 +11,8 @@ import (
     "strings"
     "syscall"
     "unsafe"
+
+    "github.com/ordaxsystems/ordax-creator/internal/safefile"
 )
 
 // This adapter consumes generated assets exported from the Surface SSOT.
@@ -67,19 +69,40 @@ func creatorParseColor(value string) (uintptr, bool) {
     return uintptr(uint32(b[0]) | uint32(b[1]) << 8 | uint32(b[2]) << 16), true
 }
 
+// Theme and logo bytes are exported by the Surface-owned design contract.
+// Bound each local read before allocating or decoding; the existing bundle
+// provenance and symbol digest checks remain the only identity bindings.
+const (
+	creatorThemeMaxBytes int64 = 64 << 10
+	creatorSymbolMaxBytes int64 = 2 << 20
+	creatorProvenanceMaxBytes int64 = 64 << 10
+)
+
+func readCreatorVisualThemeAssets(directory string) (themeBytes, symbolBytes, provenanceBytes []byte, symbolPath string, err error) {
+	themeBytes, err = safefile.ReadBoundedRegular(filepath.Join(directory, "ordax-design-theme.json"), creatorThemeMaxBytes)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	symbolPath = filepath.Join(directory, "ordax-symbol.png")
+	symbolBytes, err = safefile.ReadBoundedRegular(symbolPath, creatorSymbolMaxBytes)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	provenanceBytes, err = safefile.ReadBoundedRegular(filepath.Join(directory, "provenance.json"), creatorProvenanceMaxBytes)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	return themeBytes, symbolBytes, provenanceBytes, symbolPath, nil
+}
+
 func loadCreatorVisualTheme() {
     executable, err := os.Executable()
     if err != nil {
         return
     }
     directory := filepath.Dir(executable)
-    themeBytes, err := os.ReadFile(filepath.Join(directory, "ordax-design-theme.json"))
-    if err != nil || len(themeBytes) > 64<<10 {
-        return
-    }
-    symbolPath := filepath.Join(directory, "ordax-symbol.png")
-    symbolBytes, err := os.ReadFile(symbolPath)
-    if err != nil || len(symbolBytes) > 2<<20 || len(symbolBytes) < 24 ||
+    themeBytes, symbolBytes, provenanceBytes, symbolPath, err := readCreatorVisualThemeAssets(directory)
+    if err != nil || len(symbolBytes) < 24 ||
         string(symbolBytes[:8]) != "\x89PNG\r\n\x1a\n" {
         return
     }
@@ -95,10 +118,6 @@ func loadCreatorVisualTheme() {
         return
     }
     // Bundle provenance is tied to the exact exported theme and symbol in CI.
-    provenanceBytes, err := os.ReadFile(filepath.Join(directory, "provenance.json"))
-    if err != nil || len(provenanceBytes) > 64<<10 {
-        return
-    }
     var provenance struct {
         ThemeSHA256 string `json:"theme_sha256"`
         SymbolSHA256 string `json:"symbol_sha256"`
