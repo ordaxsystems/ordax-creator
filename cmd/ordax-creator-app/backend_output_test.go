@@ -60,3 +60,16 @@ func TestBackendOutputLimitsAndTimeoutsArePurposeBound(t *testing.T) {
 		t.Fatalf("unknown backend operation had unbounded timeout=%s", got)
 	}
 }
+
+func TestUnelevatedBackendRejectsDestructiveAndUnknownOperations(t *testing.T) {
+	for _, operation := range []string{"targets", "status", "prepare", "prepare-portable"} {
+		if !backendReadOnlyOperation(operation) {
+			t.Fatalf("expected safe operation rejected: %s", operation)
+		}
+	}
+	for _, operation := range []string{"", "apply", "apply-portable", "write", "format", "delete", "unknown"} {
+		if backendReadOnlyOperation(operation) {
+			t.Fatalf("unsafe operation accepted in UI helper: %q", operation)
+		}
+	}
+}
