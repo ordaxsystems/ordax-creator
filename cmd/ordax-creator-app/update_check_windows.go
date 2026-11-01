@@ -15,7 +15,13 @@ import (
 	"time"
 )
 
-const ownerUpdateManifestURL = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/creator-owner-update.json"
+const (
+	ownerUpdateManifestURL = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/creator-owner-update.json"
+	// The signed-source owner bundle includes system images and may exceed
+	// 512 MiB. This is only a bounded read-only manifest check, never a
+	// download/installation entitlement or a physical-write authorization.
+	maxOwnerUpdateBundleBytes int64 = 2 << 30
+)
 
 var (
 	updateMu           sync.Mutex
@@ -71,7 +77,7 @@ func validateOwnerUpdateManifest(manifest ownerUpdateManifest) error {
 	if manifest.Artifact != "OrdaX-Creator-Owner-Prototype.zip" {
 		return errors.New("Creator update artifact is unexpected")
 	}
-	if !validLowerHexString(manifest.SHA256, 64) || manifest.Size <= 0 || manifest.Size > 512<<20 {
+	if !validLowerHexString(manifest.SHA256, 64) || manifest.Size <= 0 || manifest.Size > maxOwnerUpdateBundleBytes {
 		return errors.New("Creator update bundle binding is invalid")
 	}
 	parsed, err := url.Parse(manifest.DownloadURL)
@@ -216,6 +222,31 @@ func beginUpdateCheck(manual bool) {
 	}()
 }
 
+// The installed build identity belongs to the executable, not the owner
+// release's read-only update notice. Keep both versions and source commits
+// distinct in the manual instructions; no in-app update is performed.
+func ownerUpdateManualMessage(installedVersion, installedSource string, state updateUIState) string {
+	body := creatorT(msgUpdateBundleManualBody)
+	if !state.Available || state.Error != "" ||
+		!validCreatorVersion(installedVersion) || !validLowerHexString(installedSource, 40) ||
+		!validCreatorVersion(state.Version) || !validLowerHexString(state.SourceCommit, 40) {
+		return body
+	}
+	details := creatorTValues(msgUpdateVersionComparison, map[string]string{
+		"installed":       installedVersion,
+		"installed_commit": shortSourceCommit(installedSource),
+		"available":       state.Version,
+		"available_commit": shortSourceCommit(state.SourceCommit),
+	})
+	return details + "\n\n" + body
+}
+
+func showOwnerUpdateManualMessage(state updateUIState) {
+	installedVersion, installedSource, _ := ownerPrototypeBuildInfo()
+	messageBox(ownerUpdateManualMessage(installedVersion, installedSource, state),
+		creatorT(msgUpdateAvailableTitle), mbOK|mbIconInformation)
+}
+
 func renderUpdateUI() {
 	if updateButton == 0 {
 		return
@@ -232,7 +263,7 @@ func renderUpdateUI() {
 		enable(updateButton, false)
 		return
 	}
-	if state.Available {
+	if state.Available && state.Error == "" {
 		setText(updateButton, creatorT(msgUpdateAvailableAction))
 		enable(updateButton, true)
 		return
@@ -248,9 +279,11 @@ func renderUpdateDone() {
 	renderUpdateUI()
 
 	if state.Available && state.Error == "" {
-		setCreatorVersion("OrdaX Creator • "+state.Version+" "+creatorT(msgVersionAvailable))
+		// Never replace the installed build label with the candidate version.
+		// The button owns availability, and the manual dialog owns the
+		// comparison; installation is unchanged until externally updated.
 		if state.Manual {
-			messageBox(creatorT(msgUpdateBundleManualBody), creatorT(msgUpdateAvailableTitle), mbOK|mbIconInformation)
+			showOwnerUpdateManualMessage(state)
 		}
 		return
 	}
@@ -272,8 +305,8 @@ func handleUpdateButton() {
 	updateMu.Lock()
 	state := currentUpdateState
 	updateMu.Unlock()
-	if state.Available {
-		messageBox(creatorT(msgUpdateBundleManualBody), creatorT(msgUpdateAvailableTitle), mbOK|mbIconInformation)
+	if state.Available && state.Error == "" {
+		showOwnerUpdateManualMessage(state)
 		return
 	}
 	beginUpdateCheck(true)
