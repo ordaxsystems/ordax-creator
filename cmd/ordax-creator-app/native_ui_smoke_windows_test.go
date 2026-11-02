@@ -3,6 +3,7 @@
 package main
 
 import (
+    "errors"
     "os"
     "runtime"
     "strings"
@@ -287,6 +288,45 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
         t.Fatal("queued Refresh after successful write started a new discovery")
     }
     t.Log("Failed USB retries and stale selection events are fail-closed; completed write ignores queued Refresh")
+
+    // Integrated native lifecycle, still entirely synthetic: preparation,
+    // elevated failure, diagnostic UI, and a separately verified success.
+    // No discovery, authorization prompt, subprocess or physical write runs.
+    updateWriteProgress("synthetic preparation", "no USB access")
+    renderWriteProgress()
+    if !writeInProgress() || isEnabled() {
+        t.Fatal("synthetic preparation left the destructive action enabled")
+    }
+    helpEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(bootHelpButton)
+    if helpEnabled != 0 {
+        t.Fatal("failure-detail action was enabled during active preparation")
+    }
+    completeWrite(&physicalWriteFailure{
+        cause: errors.New("synthetic Portable readback integrity failure"),
+        diagnosticPath: `C:\Temp\synthetic-creator-report.txt`,
+    })
+    renderWriteDone()
+    if isEnabled() == false ||
+       creatorControlCaption(writeButton) != creatorT(msgActionRetry) ||
+       creatorControlCaption(bootHelpButton) != creatorT(msgActionFailureDetails) ||
+       !strings.Contains(creatorHintText, "synthetic-creator-report.txt") {
+        t.Fatalf("failed synthetic writer was not recoverable: retry=%q details=%q hint=%q",
+            creatorControlCaption(writeButton), creatorControlCaption(bootHelpButton), creatorHintText)
+    }
+    updateWriteProgress("new synthetic preparation", "still no USB access")
+    renderWriteProgress()
+    completeWrite(nil) // Models verified zero process exit, not sidecar.
+    renderWriteDone()
+    comboEnabled, _, _ = user32.NewProc("IsWindowEnabled").Call(deviceCombo)
+    refreshEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(refreshButton)
+    if !isEnabled() || comboEnabled != 0 || refreshEnabled != 0 ||
+       creatorControlCaption(writeButton) != creatorT(msgActionFinish) ||
+       creatorProgressValue != 100 {
+        t.Fatalf("successful synthetic writer exposed stale actions: write=%q enabled=%t USB=%d refresh=%d progress=%d",
+            creatorControlCaption(writeButton), isEnabled(), comboEnabled, refreshEnabled, creatorProgressValue)
+    }
+    t.Log("Synthetic native lifecycle: preparing -> failed -> safe retry -> verified success, no physical I/O")
+
 
 
 
