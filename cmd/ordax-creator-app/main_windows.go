@@ -840,6 +840,16 @@ func messageLoop() int {
 
 func main() {
 	runtime.LockOSThread()
+	// This exact opt-in mode is used by the Windows package smoke. It
+	// constructs the distributed Win32 executable's real controls without
+	// starting discovery, networking, updates, UAC or a physical writer.
+	// No persisted locale preference is read in this isolated path.
+	if len(os.Args) > 1 && os.Args[1] == "--offline-package-smoke" {
+		if len(os.Args) != 2 || !offlinePackageUISmoke() {
+			os.Exit(2)
+		}
+		return
+	}
 	setCreatorLocale(string(loadCreatorLocalePreference()))
 	createMainWindow(true)
 	if code := messageLoop(); code != 0 {
