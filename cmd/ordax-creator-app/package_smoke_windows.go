@@ -2,12 +2,23 @@
 
 package main
 
+import "os"
+
 // offlinePackageUISmoke exercises the *distributed executable*, not a
 // separately compiled test binary. It must remain hermetic: no refreshAsync,
 // update check, device discovery, elevation, network, write or saved settings.
 // The CI invokes this only on a development ZIP whose SHA-256/provenance and
 // read-only authority have already been checked independently.
 func offlinePackageUISmoke() bool {
+	// CI verifies the packaged receipt first; the EXE must independently
+	// expose that same version and source Git commit. These are read-only,
+	// display-only bindings, not signing material or hardware grants.
+	version, source, bound := creatorBinaryBuildIdentity()
+	if !bound ||
+		os.Getenv("ORDAX_CREATOR_PACKAGE_EXPECT_VERSION") != version ||
+		os.Getenv("ORDAX_CREATOR_PACKAGE_EXPECT_SOURCE") != source {
+		return false
+	}
 	setCreatorLocale(string(creatorSourceLocale))
 	createMainWindow(false)
 	if mainWindow == 0 {
@@ -31,6 +42,18 @@ func offlinePackageUISmoke() bool {
 		complete = writeEnabled == 0 && deviceEnabled == 0
 	}
 	if refreshInProgress || writeInProgress() {
+		complete = false
+	}
+	expectedLabel := creatorBuildLabel(appRefreshState{
+		Version: version, SourceCommit: source,
+	})
+	if creatorVersionText != expectedLabel ||
+		creatorDisplayedBuildLabel(appRefreshState{
+			Version: "9.9.9-dev",
+			SourceCommit: "ffffffffffffffffffffffffffffffffffffffff",
+		}) != expectedLabel {
+		// The GUI must not mistake a downloaded/dependent component
+		// release for the identity of the packaged GUI binary.
 		complete = false
 	}
 	stateMu.Lock()
