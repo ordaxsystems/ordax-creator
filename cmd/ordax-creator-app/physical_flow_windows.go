@@ -116,6 +116,18 @@ func writeInProgress() bool {
 	return writeState.Active
 }
 
+// A terminal physical result owns the UI until the user explicitly starts
+// fresh discovery (failure) or finishes (success). A queued selection event
+// must never silently clear that result or reuse the former target.
+func physicalWriteTerminalFlags() (failed, succeeded bool) {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	if writeState.Active {
+		return false, false
+	}
+	return writeState.Error != "", writeState.Success
+}
+
 func updateWriteProgress(status, hint string) {
 	writeMu.Lock()
 	writeState.Active = true
@@ -272,12 +284,11 @@ func renderWriteDone() {
 		setText(bootHelpButton, creatorT(msgActionFailureDetails))
 	}
 
-	stateMu.Lock()
-	current := refreshState
-	stateMu.Unlock()
 	enable(refreshButton, !state.Success)
 	enable(localeCombo, !state.Success)
-	enable(deviceCombo, !state.Success && len(current.Targets) > 0)
+	// Never let the previous USB selection overwrite a terminal write
+	// result. Recovery is discovery-only and requires a fresh explicit pick.
+	enable(deviceCombo, false)
 	// A failed operation's retry only refreshes the target list; it never
 	// invokes the writer. Therefore retry stays available even if no
 	// cached candidate or connected USB is currently usable.

@@ -3,6 +3,7 @@
 package main
 
 import (
+    "errors"
     "os"
     "runtime"
     "strings"
@@ -229,6 +230,104 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
         t.Fatal("recovery retained an old physical target without a new explicit choice")
     }
     t.Log("Native retry remains available without USB, error survives locale change, and previous target is cleared")
+
+    // A failed attempt can leave its old USB in the cached discovery state.
+    // Even a queued selection event must not remove the failure and enable
+    // another destructive action. An explicit Refresh and the Retry button
+    // must both start with no selected target.
+    stateMu.Lock()
+    refreshState = fixture
+    stateMu.Unlock()
+    send(deviceCombo, cbSetCurSel, 0, 0)
+    writeMu.Lock()
+    writeState = physicalWriteState{
+        Error: "synthetic partial Portable USB failure",
+        DiagnosticPath: `C:\Temp\previous-writer-diagnostic.txt`,
+    }
+    writeMu.Unlock()
+    renderWriteDone()
+    comboEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(deviceCombo)
+    if comboEnabled != 0 {
+        t.Fatal("failed physical write left the previous USB combo interactive")
+    }
+    if !isEnabled() || creatorControlCaption(writeButton) != creatorT(msgActionRetry) {
+        t.Fatal("terminal failure no longer offered read-only Retry")
+    }
+    updateSelectionUI() // Simulate a previously queued CBN_SELCHANGE.
+    writeMu.Lock()
+    failureRetained := writeState.Error != "" && !writeState.Active
+    writeMu.Unlock()
+    if !failureRetained || creatorControlCaption(writeButton) != creatorT(msgActionRetry) {
+        t.Fatal("queued old USB selection erased the terminal failure")
+    }
+    captureUSBSelectionForRefresh() // Shared by Refresh and Retry, no services.
+    if selectedTargetIndex() != -1 || pendingRefreshSelection != nil {
+        t.Fatal("recovery refresh kept an old physical USB selected")
+    }
+
+    // Ordinary read-only refresh remains unchanged: an already explicitly
+    // selected safe target may be restored only by exact identity check.
+    writeMu.Lock()
+    writeState = physicalWriteState{}
+    writeMu.Unlock()
+    send(deviceCombo, cbSetCurSel, 0, 0)
+    captureUSBSelectionForRefresh()
+    if pendingRefreshSelection == nil || pendingRefreshSelection.DiskNumber != fixture.Targets[0].DiskNumber {
+        t.Fatal("ordinary USB refresh unexpectedly lost explicit selection history")
+    }
+    pendingRefreshSelection = nil
+
+    // A queued Refresh click must not unwind a verified successful write
+    // and accidentally reactivate selection or start a discovery worker.
+    writeMu.Lock()
+    writeState = physicalWriteState{Success: true}
+    writeMu.Unlock()
+    refreshInProgress = false
+    beginRefresh()
+    if refreshInProgress || pendingRefreshSelection != nil {
+        t.Fatal("queued Refresh after successful write started a new discovery")
+    }
+    t.Log("Failed USB retries and stale selection events are fail-closed; completed write ignores queued Refresh")
+
+    // Integrated native lifecycle, still entirely synthetic: preparation,
+    // elevated failure, diagnostic UI, and a separately verified success.
+    // No discovery, authorization prompt, subprocess or physical write runs.
+    updateWriteProgress("synthetic preparation", "no USB access")
+    renderWriteProgress()
+    if !writeInProgress() || isEnabled() {
+        t.Fatal("synthetic preparation left the destructive action enabled")
+    }
+    helpEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(bootHelpButton)
+    if helpEnabled != 0 {
+        t.Fatal("failure-detail action was enabled during active preparation")
+    }
+    completeWrite(&physicalWriteFailure{
+        cause: errors.New("synthetic Portable readback integrity failure"),
+        diagnosticPath: `C:\Temp\synthetic-creator-report.txt`,
+    })
+    renderWriteDone()
+    if isEnabled() == false ||
+       creatorControlCaption(writeButton) != creatorT(msgActionRetry) ||
+       creatorControlCaption(bootHelpButton) != creatorT(msgActionFailureDetails) ||
+       !strings.Contains(creatorHintText, "synthetic-creator-report.txt") {
+        t.Fatalf("failed synthetic writer was not recoverable: retry=%q details=%q hint=%q",
+            creatorControlCaption(writeButton), creatorControlCaption(bootHelpButton), creatorHintText)
+    }
+    updateWriteProgress("new synthetic preparation", "still no USB access")
+    renderWriteProgress()
+    completeWrite(nil) // Models verified zero process exit, not sidecar.
+    renderWriteDone()
+    comboEnabled, _, _ = user32.NewProc("IsWindowEnabled").Call(deviceCombo)
+    refreshEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(refreshButton)
+    if !isEnabled() || comboEnabled != 0 || refreshEnabled != 0 ||
+       creatorControlCaption(writeButton) != creatorT(msgActionFinish) ||
+       creatorProgressValue != 100 {
+        t.Fatalf("successful synthetic writer exposed stale actions: write=%q enabled=%t USB=%d refresh=%d progress=%d",
+            creatorControlCaption(writeButton), isEnabled(), comboEnabled, refreshEnabled, creatorProgressValue)
+    }
+    t.Log("Synthetic native lifecycle: preparing -> failed -> safe retry -> verified success, no physical I/O")
+
+
 
 
 
