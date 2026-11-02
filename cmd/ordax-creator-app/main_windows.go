@@ -347,6 +347,20 @@ func creatorBuildLabel(state appRefreshState) string {
 	return label
 }
 
+// A packaged development GUI must identify the *executable* actually opened,
+// even when creator-dev cannot be downloaded or a cached helper is older.
+// Owner/publisher builds which omit this display-only -X binding retain their
+// separately validated provenance and canonical channel label.
+func creatorDisplayedBuildLabel(state appRefreshState) string {
+	if version, source, ok := creatorBinaryBuildIdentity(); ok {
+		return creatorBuildLabel(appRefreshState{
+			Version:      version,
+			SourceCommit: source,
+		})
+	}
+	return creatorBuildLabel(state)
+}
+
 // The backend is read only in this path. Do not include raw command arguments
 // or helper stderr in UI errors: --confirm and other values are sensitive.
 func runBackendHidden(directory string, args ...string) ([]byte, error) {
@@ -564,9 +578,7 @@ func renderRefresh() {
 		send(deviceCombo, cbSetCurSel, uintptr(selection), 0)
 	}
 
-	if state.Version != "" {
-		setCreatorVersion(creatorBuildLabel(state))
-	}
+	setCreatorVersion(creatorDisplayedBuildLabel(state))
 
 	if !writeInProgress() {
 		setProgressIdle()
@@ -633,11 +645,7 @@ func renderCreatorLocaleUI() {
 	stateMu.Lock()
 	state := refreshState
 	stateMu.Unlock()
-	if state.Version != "" {
-		setCreatorVersion(creatorBuildLabel(state))
-	} else {
-		setCreatorVersion("OrdaX Creator • " + creatorT(msgVersionChecking))
-	}
+	setCreatorVersion(creatorDisplayedBuildLabel(state))
 	writeMu.Lock()
 	terminal := !writeState.Active && (writeState.Success || writeState.Error != "")
 	writeMu.Unlock()
@@ -810,7 +818,7 @@ func createMainWindow(startServices bool) {
 	writeButton = createControl("BUTTON", creatorT(msgActionCreate), wsTabStop|bsOwnerDraw|wsDisabled, 648, 630, 150, 43, idWrite)
 	bootHelpButton = createControl("BUTTON", creatorT(msgActionBootHelp), wsTabStop|bsOwnerDraw, 855, 610, 255, 43, idBootHelp)
 	initializeCreatorControls()
-	setCreatorVersion("OrdaX Creator • " + creatorT(msgVersionChecking))
+	setCreatorVersion(creatorDisplayedBuildLabel(appRefreshState{}))
 	setCreatorStatus(creatorT(msgRefreshSearching))
 	setProgressIdle()
 
