@@ -145,7 +145,7 @@ jobs:
           $zip = [System.IO.Compression.ZipFile]::OpenRead($archiveFiles[0].FullName)
           try {
             $zipNames = @($zip.Entries | ForEach-Object { $_.FullName } | Sort-Object)
-            if (@(Compare-Object $expectedNames $zipNames).Count -ne 0) {
+            if (@(Compare-Object -CaseSensitive $expectedNames $zipNames).Count -ne 0) {
               throw 'Development ZIP has missing, duplicate or unexpected files'
             }
           } finally {
@@ -154,7 +154,7 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP 'creator-package-extracted'
           Expand-Archive -LiteralPath $archiveFiles[0].FullName -DestinationPath $out
           $actualNames = @(Get-ChildItem -LiteralPath $out -Force | ForEach-Object { $_.Name } | Sort-Object)
-          if (@(Compare-Object $expectedNames $actualNames).Count -ne 0) {
+          if (@(Compare-Object -CaseSensitive $expectedNames $actualNames).Count -ne 0) {
             throw 'Extracted package contents diverge from verified ZIP entries'
           }
           $receipt = Get-Content -LiteralPath (Join-Path $out 'provenance.json') -Raw | ConvertFrom-Json
@@ -171,7 +171,7 @@ jobs:
             throw 'Candidate provenance/authority differs from exact unsigned read-only build'
           }
           $actualReceipts = @($receipt.files.PSObject.Properties.Name | Sort-Object)
-          if (@(Compare-Object ($exeNames | Sort-Object) $actualReceipts).Count -ne 0) {
+          if (@(Compare-Object -CaseSensitive ($exeNames | Sort-Object) $actualReceipts).Count -ne 0) {
             throw 'Candidate provenance binary list is not the canonical read-only list'
           }
           foreach ($name in $exeNames) {
