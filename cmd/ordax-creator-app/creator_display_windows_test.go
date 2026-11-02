@@ -122,3 +122,32 @@ func TestUSBSelectionRejectsDriftAndUnprovableIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestCreatorDisplayedBuildLabelUsesPackagedExeNotSeparatelyInstalledBackend(t *testing.T) {
+	oldVersion, oldCommit := buildCreatorVersion, buildCreatorSourceCommit
+	t.Cleanup(func() {
+		buildCreatorVersion, buildCreatorSourceCommit = oldVersion, oldCommit
+	})
+	buildCreatorVersion = "0.6.3-dev"
+	buildCreatorSourceCommit = "67517dff22647d531cd31ac834931b12406b1b3f"
+	backend := appRefreshState{
+		Version: "0.6.2-dev",
+		SourceCommit: "ef6c111fb6fadc7eba2c63fe51e2abb50e44af58",
+		Updated: true,
+	}
+	expected := creatorBuildLabel(appRefreshState{
+		Version: buildCreatorVersion, SourceCommit: buildCreatorSourceCommit,
+	})
+	for _, state := range []appRefreshState{{}, backend} {
+		got := creatorDisplayedBuildLabel(state)
+		if got != expected || !strings.Contains(got, "0.6.3-dev") ||
+			!strings.Contains(got, "67517dff") || strings.Contains(got, "ef6c111f") ||
+			strings.Contains(got, creatorT(msgVersionUpdated)) {
+			t.Fatalf("packaged GUI identity was replaced with backend identity: %q", got)
+		}
+	}
+	buildCreatorSourceCommit = "not-an-immutable-commit"
+	if got := creatorDisplayedBuildLabel(backend); got != creatorBuildLabel(backend) {
+		t.Fatalf("invalid linker identity did not fail closed to legacy presentation: %q", got)
+	}
+}

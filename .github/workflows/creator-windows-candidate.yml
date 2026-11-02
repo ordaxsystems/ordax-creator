@@ -52,9 +52,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Validate the canonical version.json; do not maintain a second
+          # product SemVer in an installer, manifest template or GUI source.
+          CREATOR_PRODUCT_VERSION="$(python3 - <<'PY'
+          import json,re
+          with open('version.json',encoding='utf-8') as fh:
+              doc=json.load(fh)
+          if set(doc)!={'$schema','version'} or doc['$schema']!='ordax.creator-product-version/1' or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(-[a-z][a-z0-9]*(\.[0-9]+)?)?',doc['version']):
+              raise SystemExit('Invalid canonical Creator product version')
+          print(doc['version'])
+          PY
+          )"
+          test "$CREATOR_PRODUCT_VERSION" != ""
+          test "${#GITHUB_SHA}" -eq 40
+          echo "CREATOR_PRODUCT_VERSION=$CREATOR_PRODUCT_VERSION" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/creator-win-a" "$RUNNER_TEMP/creator-win-b"
           for dir in "$RUNNER_TEMP/creator-win-a" "$RUNNER_TEMP/creator-win-b"; do
-            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w -H windowsgui' -o "$dir/OrdaX-Creator-App.exe" ./cmd/ordax-creator-app
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags="-s -w -H windowsgui -X main.buildCreatorVersion=$CREATOR_PRODUCT_VERSION -X main.buildCreatorSourceCommit=$GITHUB_SHA" -o "$dir/OrdaX-Creator-App.exe" ./cmd/ordax-creator-app
             CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$dir/ordax-creator.exe" ./cmd/ordax-creator
             CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$dir/ordax-creator-targets.exe" ./cmd/ordax-creator-targets
             CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$dir/ordax-creator-inspection.exe" ./cmd/ordax-creator-inspection
@@ -79,6 +93,7 @@ jobs:
               '$schema':'prototype-ordax.creator-development-readonly-candidate/1',
               'status':'unsigned-development-review-only',
               'creator_source_commit':source,
+              'creator_version':os.environ['CREATOR_PRODUCT_VERSION'],
               'source_repository':'ordaxsystems/ordax-creator',
               'go_version':'1.27.1',
               'files':files,
@@ -161,6 +176,7 @@ jobs:
           if ($receipt.'$schema' -cne 'prototype-ordax.creator-development-readonly-candidate/1' -or
               $receipt.status -cne 'unsigned-development-review-only' -or
               $receipt.creator_source_commit -cne $env:GITHUB_SHA -or
+              $receipt.creator_version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z][a-z0-9]*(\.[0-9]+)?)?$' -or
               $receipt.source_repository -cne 'ordaxsystems/ordax-creator' -or
               $receipt.go_version -cne '1.27.1' -or
               $receipt.physical_write_authorized -cne $false -or
@@ -204,6 +220,8 @@ jobs:
           # services disabled. Never enumerate USB, connect to the network,
           # launch an updater, request UAC or enter the disk writer.
           $app = Join-Path $out 'OrdaX-Creator-App.exe'
+          $env:ORDAX_CREATOR_PACKAGE_EXPECT_VERSION = [string]$receipt.creator_version
+          $env:ORDAX_CREATOR_PACKAGE_EXPECT_SOURCE = [string]$receipt.creator_source_commit
           $process = Start-Process -FilePath $app -ArgumentList '--offline-package-smoke' -PassThru
           try {
             if (-not $process.WaitForExit(15000)) {
