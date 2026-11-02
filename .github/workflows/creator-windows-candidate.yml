@@ -52,10 +52,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # version.json remains the only source of Creator product SemVer.
+          # Validate the canonical version.json; do not maintain a second
+          # product SemVer in an installer, manifest template or GUI source.
           CREATOR_PRODUCT_VERSION="$(python3 - <<'PY'
           import json,re
-          with open('version.json',encoding='utf-8') as fh: doc=json.load(fh)
+          with open('version.json',encoding='utf-8') as fh:
+              doc=json.load(fh)
           if set(doc)!={'$schema','version'} or doc['$schema']!='ordax.creator-product-version/1' or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(-[a-z][a-z0-9]*(\.[0-9]+)?)?',doc['version']):
               raise SystemExit('Invalid canonical Creator product version')
           print(doc['version'])
@@ -174,7 +176,7 @@ jobs:
           if ($receipt.'$schema' -cne 'prototype-ordax.creator-development-readonly-candidate/1' -or
               $receipt.status -cne 'unsigned-development-review-only' -or
               $receipt.creator_source_commit -cne $env:GITHUB_SHA -or
-              $receipt.creator_version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z][a-z0-9]*(\.[0-9]+)?)?
+              $receipt.creator_version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z][a-z0-9]*(\.[0-9]+)?)?$' -or
               $receipt.source_repository -cne 'ordaxsystems/ordax-creator' -or
               $receipt.go_version -cne '1.27.1' -or
               $receipt.physical_write_authorized -cne $false -or
@@ -220,69 +222,6 @@ jobs:
           $app = Join-Path $out 'OrdaX-Creator-App.exe'
           $env:ORDAX_CREATOR_PACKAGE_EXPECT_VERSION = [string]$receipt.creator_version
           $env:ORDAX_CREATOR_PACKAGE_EXPECT_SOURCE = [string]$receipt.creator_source_commit
-          $process = Start-Process -FilePath $app -ArgumentList '--offline-package-smoke' -PassThru
-          try {
-            if (-not $process.WaitForExit(15000)) {
-              throw 'Packaged Win32 no-services UI smoke timed out'
-            }
-            if ($process.ExitCode -ne 0) {
-              throw "Packaged Win32 no-services UI smoke failed: exit=$($process.ExitCode)"
-            }
-          } finally {
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            }
-            $process.Dispose()
-          }
-          Write-Output 'CREATOR_PACKAGE_SHA256_AND_PROVENANCE=PASS'
-          Write-Output 'PACKAGED_WINDOWS_GUI_NO_SERVICES=PASS'
-          Write-Output 'PACKAGED_INSPECTION_READ_ONLY=PASS'
-          Write-Output 'PHYSICAL_DEVICE_ENUMERATED=NO'
-          Write-Output 'PHYSICAL_WRITE_AUTHORIZED=NO'
- -or
-              $receipt.source_repository -cne 'ordaxsystems/ordax-creator' -or
-              $receipt.go_version -cne '1.27.1' -or
-              $receipt.physical_write_authorized -cne $false -or
-              $receipt.physical_raw_helper_included -cne $false -or
-              $receipt.signed_publication_allowed -cne $false -or
-              $receipt.authenticode_signature_claimed -cne $false -or
-              $receipt.canonical_release_artifacts_included -cne $false) {
-            throw 'Candidate provenance/authority differs from exact unsigned read-only build'
-          }
-          $actualReceipts = @($receipt.files.PSObject.Properties.Name | Sort-Object)
-          if (@(Compare-Object -CaseSensitive ($exeNames | Sort-Object) $actualReceipts).Count -ne 0) {
-            throw 'Candidate provenance binary list is not the canonical read-only list'
-          }
-          foreach ($name in $exeNames) {
-            $path = Join-Path $out $name
-            $file = Get-Item -LiteralPath $path -Force
-            if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-              throw "Candidate includes a nonregular or redirected binary: $name"
-            }
-            $record = $receipt.files.PSObject.Properties[$name].Value
-            $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($record.sha256 -cne $sha -or [int64]$record.size -ne [int64]$file.Length -or $file.Length -le 0) {
-              throw "Candidate binary digest/size differs from provenance: $name"
-            }
-          }
-          $readme = Get-Content -LiteralPath (Join-Path $out 'READ_ME_FIRST.txt') -Raw
-          if ($readme -notmatch 'UNSIGNED' -or $readme -notmatch 'No physical USB') {
-            throw 'Missing explicit development-only and non-destructive warning'
-          }
-          $inspect = Join-Path $out 'ordax-creator-inspection.exe'
-          $statusText = (& $inspect status | Out-String)
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged read-only inspection failed' }
-          $status = $statusText | ConvertFrom-Json
-          if ($status.mode -cne 'development-inspection-only' -or
-              $status.raw_backend_linked -ne $false -or
-              $status.build.physical_write_authorized -ne $false -or
-              $status.build.ready -ne $false) {
-            throw 'Packaged inspection unexpectedly has physical authority'
-          }
-          # The actual packaged GUI constructs its Win32 controls once with
-          # services disabled. Never enumerate USB, connect to the network,
-          # launch an updater, request UAC or enter the disk writer.
-          $app = Join-Path $out 'OrdaX-Creator-App.exe'
           $process = Start-Process -FilePath $app -ArgumentList '--offline-package-smoke' -PassThru
           try {
             if (-not $process.WaitForExit(15000)) {
