@@ -31,3 +31,39 @@ func TestCreatorProductVersionSingleSource(t *testing.T) {
  if err := json.Unmarshal(content, &fields); err != nil { t.Fatal(err) }
  if len(fields) != 2 { t.Fatalf("Creator version source must have exactly schema and version, got %d keys", len(fields)) }
 }
+
+func TestCreatorBinaryBuildIdentityRejectsMissingOrForgedValues(t *testing.T) {
+	oldVersion, oldSource := buildCreatorVersion, buildCreatorSourceCommit
+	t.Cleanup(func() {
+		buildCreatorVersion, buildCreatorSourceCommit = oldVersion, oldSource
+	})
+	const commit = "67517dff22647d531cd31ac834931b12406b1b3f"
+	for _, tc := range []struct {
+		name, version, commit string
+		ok bool
+	}{
+		{"valid-development", "0.6.3-dev", commit, true},
+		{"valid-stable-version-format", "1.0.0", commit, true},
+		{"no-binding", "", "", false},
+		{"no-commit", "0.6.3-dev", "", false},
+		{"wrong-length-commit", "0.6.3-dev", commit[:12], false},
+		{"uppercase-commit", "0.6.3-dev", "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", false},
+		{"invalid-commit", "0.6.3-dev", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", false},
+		{"invalid-version", "../0.6.3-dev", commit, false},
+		{"newline-version", "0.6.3-dev\n", commit, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			buildCreatorVersion, buildCreatorSourceCommit = tc.version, tc.commit
+			version, source, ok := creatorBinaryBuildIdentity()
+			if ok != tc.ok {
+				t.Fatalf("build binding accepted=%t, want %t", ok, tc.ok)
+			}
+			if ok && (version != tc.version || source != tc.commit) {
+				t.Fatalf("build binding changed identity: version=%q source=%q", version, source)
+			}
+			if !ok && (version != "" || source != "") {
+				t.Fatalf("invalid binding leaked partial identity: %q %q", version, source)
+			}
+		})
+	}
+}
