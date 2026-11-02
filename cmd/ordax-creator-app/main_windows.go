@@ -530,7 +530,11 @@ func updateSelectionUI() {
 	state := refreshState
 	stateMu.Unlock()
 
-	if refreshInProgress || writeInProgress() || len(state.Targets) == 0 {
+	// Combo notifications already queued before a write fails can arrive
+	// after its terminal result. Never discard that result or promote a
+	// stale selection into another destructive confirmation.
+	failed, succeeded := physicalWriteTerminalFlags()
+	if refreshInProgress || writeInProgress() || failed || succeeded || len(state.Targets) == 0 {
 		return
 	}
 	resetWriteResult()
@@ -575,14 +579,16 @@ func renderRefresh() {
 	renderUpdateUI()
 }
 
-func beginRefresh() {
-	if refreshInProgress || writeInProgress() {
+// Preserve an explicit USB selection only during an ordinary read-only
+// refresh. After a failed physical write the device may have changed layout,
+// so discovery must begin unselected even if its hardware identity survives.
+func captureUSBSelectionForRefresh() {
+	pendingRefreshSelection = nil
+	failed, succeeded := physicalWriteTerminalFlags()
+	if failed || succeeded {
+		clearUSBSelectionForRecovery()
 		return
 	}
-	refreshInProgress = true
-	// Capture only a selection made in the existing list, before disabling
-	// controls. A fresh launch never implicitly selects a destructive target.
-	pendingRefreshSelection = nil
 	stateMu.Lock()
 	previous := refreshState
 	stateMu.Unlock()
@@ -590,6 +596,15 @@ func beginRefresh() {
 		selected := previous.Targets[index]
 		pendingRefreshSelection = &selected
 	}
+}
+
+func beginRefresh() {
+	_, succeeded := physicalWriteTerminalFlags()
+	if refreshInProgress || writeInProgress() || succeeded {
+		return
+	}
+	refreshInProgress = true
+	captureUSBSelectionForRefresh()
 	resetWriteResult()
 	setText(bootHelpButton, creatorT(msgActionBootHelp))
 	enable(bootHelpButton, true)
@@ -702,17 +717,13 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			if refreshInProgress {
 				return 0
 			}
-			writeMu.Lock()
-			terminalSuccess := !writeState.Active && writeState.Success
-			terminalError := !writeState.Active && writeState.Error != ""
-			writeMu.Unlock()
+			terminalError, terminalSuccess := physicalWriteTerminalFlags()
 			if terminalSuccess {
 				procDestroyWindow.Call(mainWindow)
 				return 0
 			}
 			if terminalError {
-				clearUSBSelectionForRecovery()
-				beginRefresh()
+				beginRefresh() // Captures no prior USB after any failed write.
 				return 0
 			}
 			beginPhysicalWrite()
