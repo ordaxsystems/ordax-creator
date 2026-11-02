@@ -275,7 +275,18 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
         t.Fatal("ordinary USB refresh unexpectedly lost explicit selection history")
     }
     pendingRefreshSelection = nil
-    t.Log("Failed USB retries and stale selection events are fail-closed; ordinary refresh still retains explicit choice")
+
+    // A queued Refresh click must not unwind a verified successful write
+    // and accidentally reactivate selection or start a discovery worker.
+    writeMu.Lock()
+    writeState = physicalWriteState{Success: true}
+    writeMu.Unlock()
+    refreshInProgress = false
+    beginRefresh()
+    if refreshInProgress || pendingRefreshSelection != nil {
+        t.Fatal("queued Refresh after successful write started a new discovery")
+    }
+    t.Log("Failed USB retries and stale selection events are fail-closed; completed write ignores queued Refresh")
 
 
 
