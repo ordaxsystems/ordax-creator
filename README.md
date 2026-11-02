@@ -29,8 +29,13 @@ SemVer muda quando uma revisão do produto é promovida (por exemplo, de
 `0.6.2-dev` para `0.6.3-dev`); builds de OS ou execuções repetidas do CI **não**
 aumentam automaticamente o SemVer. Cada build tem também o commit exato do
 Creator e o commit de origem do OS no manifesto de proveniência. A interface
-mostra um identificador curto do commit ao lado da versão para distinguir
-builds da mesma versão.
+mostra um identificador curto do commit **do executável Creator** ao lado da
+versão para distinguir builds da mesma versão. O ZIP Dev Windows incorpora os
+dois valores diretamente em `OrdaX-Creator-App.exe` a partir de `version.json`
+e do commit do CI. O teste do ZIP extraído confirma esses valores no executável
+sem iniciar os serviços; uma versão do componente `creator-dev` baixada
+separadamente não substitui a versão mostrada do GUI. Esses valores são
+identificação de desenvolvimento, **não** assinatura/autorização física.
 
 Todos os workflows de candidato e validação nativa incluem `version.json` nos
 filtros de disparo: uma mudança na versão não pode passar sem reexecutar os
