@@ -230,6 +230,54 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
     }
     t.Log("Native retry remains available without USB, error survives locale change, and previous target is cleared")
 
+    // A failed attempt can leave its old USB in the cached discovery state.
+    // Even a queued selection event must not remove the failure and enable
+    // another destructive action. An explicit Refresh and the Retry button
+    // must both start with no selected target.
+    stateMu.Lock()
+    refreshState = fixture
+    stateMu.Unlock()
+    send(deviceCombo, cbSetCurSel, 0, 0)
+    writeMu.Lock()
+    writeState = physicalWriteState{
+        Error: "synthetic partial Portable USB failure",
+        DiagnosticPath: `C:\Temp\previous-writer-diagnostic.txt`,
+    }
+    writeMu.Unlock()
+    renderWriteDone()
+    comboEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(deviceCombo)
+    if comboEnabled != 0 {
+        t.Fatal("failed physical write left the previous USB combo interactive")
+    }
+    if !isEnabled() || creatorControlCaption(writeButton) != creatorT(msgActionRetry) {
+        t.Fatal("terminal failure no longer offered read-only Retry")
+    }
+    updateSelectionUI() // Simulate a previously queued CBN_SELCHANGE.
+    writeMu.Lock()
+    failureRetained := writeState.Error != "" && !writeState.Active
+    writeMu.Unlock()
+    if !failureRetained || creatorControlCaption(writeButton) != creatorT(msgActionRetry) {
+        t.Fatal("queued old USB selection erased the terminal failure")
+    }
+    captureUSBSelectionForRefresh() // Shared by Refresh and Retry, no services.
+    if selectedTargetIndex() != -1 || pendingRefreshSelection != nil {
+        t.Fatal("recovery refresh kept an old physical USB selected")
+    }
+
+    // Ordinary read-only refresh remains unchanged: an already explicitly
+    // selected safe target may be restored only by exact identity check.
+    writeMu.Lock()
+    writeState = physicalWriteState{}
+    writeMu.Unlock()
+    send(deviceCombo, cbSetCurSel, 0, 0)
+    captureUSBSelectionForRefresh()
+    if pendingRefreshSelection == nil || pendingRefreshSelection.DiskNumber != fixture.Targets[0].DiskNumber {
+        t.Fatal("ordinary USB refresh unexpectedly lost explicit selection history")
+    }
+    pendingRefreshSelection = nil
+    t.Log("Failed USB retries and stale selection events are fail-closed; ordinary refresh still retains explicit choice")
+
+
 
 
 
