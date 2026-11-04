@@ -10,12 +10,15 @@ Mandatory instructions for agents and maintainers.
 - No alternative image builder, artifact catalog, 17-artifact inventory, updater, signature root or destructive authorization mechanism may be introduced. Contract downloads are pinned immutable, read-only inputs, never duplicated authority.
 - C6 implementation extraction and OS consumer cutover are complete: OS #2222 removed its 154 embedded Go/module files; OS #2000 integrated independent 17-source bindings. OS-owned Python media producers and physical authorization remain in `ordax-os/tools/creator/`. Signed Stable production and device-specific physical consent are separate unapproved OS gates; see `docs/MIGRATION.md`.
 
-## Mandatory reading
-1. README.md
-2. docs/MIGRATION.md
-3. docs/ARCHITECTURE.md
-4. docs/PROVENANCE.md
-5. At an exact OS commit: ordax-os/AGENTS.md, MVP.md, docs/README.md, docs/CURRENT-STATE.md, docs/CREATOR-INSTALLATION.md, docs/PROMOTION-GATES.md and the relevant machine-readable OS contracts.
+## Reading proportional to the change
+
+For a local Creator edit, read this `AGENTS.md`, the affected source and only the relevant contracts. **Do not read the full Creator and OS documentation set before a minor UI, text or isolated code change. Implement first; then run focused existing checks.**
+
+- **Migration, source locks, imported provenance or OS consumer handoff:** consult `docs/MIGRATION.md`, `docs/PROVENANCE.md` and the exact pinned OS source/contracts affected.
+- **Core architecture, ownership or component boundaries:** consult `docs/ARCHITECTURE.md` and relevant parts of `README.md`.
+- **Physical writes, media geometry, permission/trust, signing, update or production promotion:** perform the necessary preflights and read the applicable OS documents at the **exact verified revision** (including `ordax-os/AGENTS.md`, `MVP.md`, `docs/CURRENT-STATE.md`, `docs/CREATOR-INSTALLATION.md`, `docs/PROMOTION-GATES.md` and machine-readable contracts as applicable). Never infer device authorization from general DEV permission.
+
+Do not create plans, evidence files, CI workflows or full USB/Windows rebuilds solely to satisfy a reading checklist. Existing safety, trust and release gates remain mandatory when their domain is affected.
 
 ## Coordination
 - Surface agent may change OS main; the OS Foundation work is paused. Keep this project's work Creator-scoped.
