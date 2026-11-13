@@ -4,6 +4,18 @@
 
 Mandatory instructions for agents and maintainers.
 
+## Integração canônica no produto — 13/11/2026
+
+O Creator é **consumer de mídia OrdaX verificada**, não compositor nem builder transitivo do ecossistema.
+
+- `ordax-os` produz/autoriza os artefatos de Base, kernel, boot e mídia; Creator apenas seleciona o candidato autorizado, verifica e grava.
+- Creator não integra Surface, Apps, Intelligence, Desktop ou Runtime por source e não mantém pins transitivos desses repos.
+- Uma nova Surface/app não exige mudança no Creator; só uma mudança do contrato/artefato de mídia consumido justifica adoção aqui.
+- Não recompilar upstream para preparar USB. Reusar artefatos imutáveis, hashes, provenance e cache existentes.
+- Confirmação do dispositivo físico e readback continuam gates locais do Creator e não são removidos pela simplificação da composição.
+
+Regra transversal: [`ordax-os/docs/DEVELOPMENT-WORKFLOW.md`](https://github.com/ordaxsystems/ordax-os/blob/main/docs/DEVELOPMENT-WORKFLOW.md#integração-multi-repositório--composição-do-produto-2026-11-13), ADR-031.
+
 ## Identity and source authority
 - This repository is the sole implementation owner of the independent Creator Core, Windows UI, device adapters, signed-consumer channels, narrow privileged writer, device-target revalidation and readback.
 - ordaxsystems/ordax-os remains the sole producer/owner of Base, kernel, boot, official OS artifacts, media/storage contracts, publisher trust, physical-promotion policy and release signer.
