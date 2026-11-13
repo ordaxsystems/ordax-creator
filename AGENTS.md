@@ -33,10 +33,9 @@ For a local Creator edit, read this `AGENTS.md`, the affected source and only th
 Do not create plans, evidence files, CI workflows or full USB/Windows rebuilds solely to satisfy a reading checklist. Existing safety, trust and release gates remain mandatory when their domain is affected.
 
 ## Coordination
-- Surface agent may change OS main; the OS Foundation work is paused. Keep this project's work Creator-scoped.
-- Create Creator branches and PRs here. Proposed OS modifications require separate Creator-only PRs; never merge those before reconciling with the Surface agent and updated OS main.
-- Preserve the merged `ordax-os#2000` 17-source source-binding contract and the single independent Creator Core; reconcile concurrent OS branches before any further cross-repository change.
-- No force push, history rewriting of either main, or squashing published OS main ancestry.
+- Independent owners advance in parallel. Do not wait for Surface/Desktop/Apps work unless Creator must consume a changed media contract/artifact.
+- When an OS media contract or artifact is adopted, revalidate that direct input only; do not reconcile unrelated repository branches.
+- Never treat another agent/chat/branch assignment as durable architecture. Current source, contracts and repository ownership are authoritative.
 
 ## Physical-safety invariants
 - Do not enumerate, open for writing, lock, eject, repartition, format or write a real USB or internal disk without separate explicit per-target authorization, regardless of broad software-development permission.
