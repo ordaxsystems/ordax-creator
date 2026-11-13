@@ -9,14 +9,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
 	ownerUpdateManifestURL = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/creator-owner-update.json"
+	ownerUpdateBundleURL   = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip"
 	// The signed-source owner bundle includes system images and may exceed
 	// 512 MiB. This is only a bounded read-only manifest check, never a
 	// download/installation entitlement or a physical-write authorization.
@@ -26,6 +28,9 @@ const (
 var (
 	updateMu           sync.Mutex
 	currentUpdateState updateUIState
+
+	creatorShell32           = syscall.NewLazyDLL("shell32.dll")
+	procCreatorShellExecuteW = creatorShell32.NewProc("ShellExecuteW")
 )
 
 type ownerUpdateManifest struct {
@@ -81,11 +86,7 @@ func validateOwnerUpdateManifest(manifest ownerUpdateManifest) error {
 	if !validLowerHexString(manifest.SHA256, 64) || manifest.Size <= 0 || manifest.Size > maxOwnerUpdateBundleBytes {
 		return errors.New("Creator update bundle binding is invalid")
 	}
-	parsed, err := url.Parse(manifest.DownloadURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return errors.New("Creator update URL is invalid")
-	}
-	if parsed.Path != "/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip" {
+	if manifest.DownloadURL != ownerUpdateBundleURL {
 		return errors.New("Creator update bundle is outside the OrdaX release channel")
 	}
 	if manifest.AutomaticInAppUpdate {
@@ -249,6 +250,43 @@ func showOwnerUpdateManualMessage(state updateUIState) {
 		creatorT(msgUpdateAvailableTitle), mbOK|mbIconInformation)
 }
 
+func ownerUpdateDownloadTarget(state updateUIState) (string, bool) {
+	if state.Checking || !state.Checked || !state.Available || state.Error != "" {
+		return "", false
+	}
+	return ownerUpdateBundleURL, true
+}
+
+// Opening the already-validated immutable release URL is a navigation action,
+// not an in-app updater. The extracted bundle must still be replaced as a
+// whole; Creator never mutates its running executable or grants USB authority.
+func openOwnerUpdateDownload(state updateUIState) error {
+	target, ok := ownerUpdateDownloadTarget(state)
+	if !ok {
+		return errors.New("Creator update download is not available")
+	}
+	verb, err := syscall.UTF16PtrFromString("open")
+	if err != nil {
+		return err
+	}
+	targetUTF16, err := syscall.UTF16PtrFromString(target)
+	if err != nil {
+		return err
+	}
+	result, _, callErr := procCreatorShellExecuteW.Call(
+		0,
+		uintptr(unsafe.Pointer(verb)),
+		uintptr(unsafe.Pointer(targetUTF16)),
+		0,
+		0,
+		uintptr(swShow),
+	)
+	if result <= 32 {
+		return fmt.Errorf("open official Creator update failed (ShellExecute=%d): %v", result, callErr)
+	}
+	return nil
+}
+
 // The dedicated update control represents the outcome of the *check*, not
 // an installation. Completed checks may be repeated, and an unsuccessful
 // network/trust check must offer retry without declaring the build current.
@@ -324,6 +362,9 @@ func handleUpdateButton() {
 	updateMu.Unlock()
 	if state.Available && state.Error == "" {
 		showOwnerUpdateManualMessage(state)
+		if err := openOwnerUpdateDownload(state); err != nil {
+			messageBox(creatorT(msgUpdateDownloadFailedBody), windowTitle, mbOK|mbIconError)
+		}
 		return
 	}
 	beginUpdateCheck(true)
