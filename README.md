@@ -4,6 +4,12 @@ Standalone source of **OrdaX Creator**, using the verified-media preparation Cor
 
 **Migration status: C6 source extraction and OS consumer cutover COMPLETE (2026-10-24).** OS PRs [#2222](https://github.com/ordaxsystems/ordax-os/pull/2222) and [#2000](https://github.com/ordaxsystems/ordax-os/pull/2000) removed the duplicate Go implementation and integrated the independent 17-source bindings. OS-owned Python media producers remain under `ordax-os/tools/creator/` by design. The `ordax-os` remains sole producer/authority for Base, kernel, boot, official releases, media/storage layouts, physical promotion and signing policy. **No signed Stable release or live hardware write is authorized by C6.**
 
+## Relação com o restante do OrdaX
+
+Creator recebe um **candidato de mídia OrdaX já produzido e verificável** pelo owner do OS. Ele não recompila kernel/Base/Surface/Apps nem precisa acompanhar cada alteração dos outros repositórios. Seu trabalho começa no artefato direto: verificar identidade/proveniência, obter consentimento do alvo, gravar e conferir readback.
+
+Isso permite Surface, Desktop, Apps e OS evoluírem em paralelo sem transformar o Creator em gargalo. [Regra canônica de composição](https://github.com/ordaxsystems/ordax-os/blob/main/docs/DEVELOPMENT-WORKFLOW.md#integração-multi-repositório--composição-do-produto-2026-11-13).
+
 ## Development and validation
 
 - Core and safe CLI: `go test -count=1 ./...` and `go vet ./...`. Without an explicit OS contract integration root, only OS-contract-dependent integration cases skip; other Core tests run offline.
