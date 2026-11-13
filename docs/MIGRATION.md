@@ -14,7 +14,7 @@ This is the *canonical Creator migration handoff and historical execution record
 - Audited OS main: f65acc4fb9f8ded376fc9b44b4c7c2068c793265; **recheck at every execution**, never treat the dated SHA as moving main.
 - OS source root: tools/creator/; original module github.com/ordaxsystems/ordax-os/tools/creator, Go 1.27, product version 0.6.2-dev.
 - Historical 2026-10-23 baseline: OS #2000 (a8c11fb636e2c652aa2c0c24f4fa8ad5ae349deb) was an OPEN/DRAFT six-file single-inventory refactor; it is now MERGED (see final C6 evidence below). At that head, 12/13 workflows passed: First Physical USB Payload failed at OS Stable Base's pinned Alpine ca-certificates version; the new Core 17-source tests passed. Do not modify Base to make Creator CI green.
-- OS #2193 remains a separate Creator-documentation handoff draft; no merge into OS until coordination with Surface agent.
+- Historical Creator-documentation handoff OS #2193 was **closed without merge** and is superseded by the completed C6 cutover recorded here. It is not an active coordination gate and must not be reopened or used to serialize Surface work.
 - Existing OS machine-readable code-signing contract has publish_allowed=false; no public signed Creator or physical write permission exists.
 
 ## Scope by owner
