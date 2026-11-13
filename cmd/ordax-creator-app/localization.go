@@ -119,7 +119,8 @@ const (
 	msgUpdateAvailableTitle      creatorMessageID = "creator.update.available.title"
 	msgUpdateFailedBody          creatorMessageID = "creator.update.failed.body"
 	msgUpdateCurrentBody         creatorMessageID = "creator.update.current.body"
-	msgUpdateBundleManualBody    creatorMessageID = "creator.update.bundleManual.body"
+	msgUpdateBundleManualBody     creatorMessageID = "creator.update.bundleManual.body"
+	msgUpdateDownloadFailedBody   creatorMessageID = "creator.update.downloadFailed.body"
 	msgUpdateVersionComparison    creatorMessageID = "creator.update.versionComparison"
 	msgPortablePlanStatus        creatorMessageID = "creator.write.portablePlan.status"
 	msgPortablePlanHint          creatorMessageID = "creator.write.portablePlan.hint"
@@ -236,10 +237,11 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgWritePreparingHint:        "A imagem oficial está sendo validada e preparada para o tamanho exato do USB selecionado.",
 	msgUpdateDevChannelBody:      "Este build usa o canal de desenvolvimento. O Creator gravável possui o canal de atualização próprio.",
 	msgUpdateAvailableTitle:      "Atualização disponível",
-	msgUpdateAvailableAction:     "Atualização disponível",
+	msgUpdateAvailableAction:     "Baixar atualização",
 	msgUpdateFailedBody:          "Não foi possível verificar novas versões. A instalação atual não foi alterada. Confira a conexão e tente novamente.",
 	msgUpdateCurrentBody:         "Nenhuma versão mais recente foi encontrada no canal do Creator. A instalação atual permanece inalterada.",
-	msgUpdateBundleManualBody:    "Há uma nova versão no bundle oficial do OrdaX Creator. Este canal ainda não permite atualização automática dentro do app; baixe o novo OrdaX-Creator-Owner-Prototype.zip da release oficial e substitua o bundle extraído completo. Não substitua apenas o EXE da interface.",
+	msgUpdateBundleManualBody:     "Há uma nova versão no bundle oficial do OrdaX Creator. Ao confirmar estas instruções, o Creator abrirá OrdaX-Creator-Owner-Prototype.zip no navegador; substitua o bundle extraído completo. Não substitua apenas o EXE da interface.",
+	msgUpdateDownloadFailedBody:   "Não foi possível abrir o download oficial no navegador. A instalação atual não foi alterada; tente novamente pelo botão de atualização.",
 	msgUpdateVersionComparison:    "Instalado: {installed} ({installed_commit})\nDisponível: {available} ({available_commit})",
 	msgPortablePlanStatus:        "Validando o plano Portable…",
 	msgPortablePlanHint:          "O Creator Core está vinculando o layout e os 17 artefatos assinados ao USB selecionado.",
@@ -356,10 +358,11 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgWritePreparingHint:        "The official image is being validated and prepared for the exact size of the selected USB device.",
 	msgUpdateDevChannelBody:      "This build uses the development channel. The write-capable Creator has its own update channel.",
 	msgUpdateAvailableTitle:      "Update available",
-	msgUpdateAvailableAction:     "Update available",
+	msgUpdateAvailableAction:     "Download update",
 	msgUpdateFailedBody:          "Unable to check for new versions. Your installed version was not changed. Check your connection and try again.",
 	msgUpdateCurrentBody:         "No newer version was found on the Creator channel. Your installed version remains unchanged.",
-	msgUpdateBundleManualBody:    "A new version is available in the official OrdaX Creator bundle. This channel does not yet allow automatic in-app updates; download the new OrdaX-Creator-Owner-Prototype.zip from the official release and replace the complete extracted bundle. Do not replace only the UI executable.",
+	msgUpdateBundleManualBody:     "A new version is available in the official OrdaX Creator bundle. After you confirm these instructions, Creator will open OrdaX-Creator-Owner-Prototype.zip in your browser; replace the complete extracted bundle. Do not replace only the UI executable.",
+	msgUpdateDownloadFailedBody:   "Creator could not open the official download in your browser. The current installation was not changed; try again from the update button.",
 	msgUpdateVersionComparison:    "Installed: {installed} ({installed_commit})\nAvailable: {available} ({available_commit})",
 	msgPortablePlanStatus:        "Validating the Portable plan…",
 	msgPortablePlanHint:          "Creator Core is binding the layout and all 17 signed artifacts to the selected USB device.",
