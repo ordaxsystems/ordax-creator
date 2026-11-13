@@ -4,6 +4,18 @@
 
 Mandatory instructions for agents and maintainers.
 
+## Integração canônica no produto — 13/11/2026
+
+O Creator é **consumer de mídia OrdaX verificada**, não compositor nem builder transitivo do ecossistema.
+
+- `ordax-os` produz/autoriza os artefatos de Base, kernel, boot e mídia; Creator apenas seleciona o candidato autorizado, verifica e grava.
+- Creator não integra Surface, Apps, Intelligence, Desktop ou Runtime por source e não mantém pins transitivos desses repos.
+- Uma nova Surface/app não exige mudança no Creator; só uma mudança do contrato/artefato de mídia consumido justifica adoção aqui.
+- Não recompilar upstream para preparar USB. Reusar artefatos imutáveis, hashes, provenance e cache existentes.
+- Confirmação do dispositivo físico e readback continuam gates locais do Creator e não são removidos pela simplificação da composição.
+
+Regra transversal: [`ordax-os/docs/DEVELOPMENT-WORKFLOW.md`](https://github.com/ordaxsystems/ordax-os/blob/main/docs/DEVELOPMENT-WORKFLOW.md#integração-multi-repositório--composição-do-produto-2026-11-13), ADR-031.
+
 ## Identity and source authority
 - This repository is the sole implementation owner of the independent Creator Core, Windows UI, device adapters, signed-consumer channels, narrow privileged writer, device-target revalidation and readback.
 - ordaxsystems/ordax-os remains the sole producer/owner of Base, kernel, boot, official OS artifacts, media/storage contracts, publisher trust, physical-promotion policy and release signer.
@@ -21,10 +33,9 @@ For a local Creator edit, read this `AGENTS.md`, the affected source and only th
 Do not create plans, evidence files, CI workflows or full USB/Windows rebuilds solely to satisfy a reading checklist. Existing safety, trust and release gates remain mandatory when their domain is affected.
 
 ## Coordination
-- Surface agent may change OS main; the OS Foundation work is paused. Keep this project's work Creator-scoped.
-- Create Creator branches and PRs here. Proposed OS modifications require separate Creator-only PRs; never merge those before reconciling with the Surface agent and updated OS main.
-- Preserve the merged `ordax-os#2000` 17-source source-binding contract and the single independent Creator Core; reconcile concurrent OS branches before any further cross-repository change.
-- No force push, history rewriting of either main, or squashing published OS main ancestry.
+- Independent owners advance in parallel. Do not wait for Surface/Desktop/Apps work unless Creator must consume a changed media contract/artifact.
+- When an OS media contract or artifact is adopted, revalidate that direct input only; do not reconcile unrelated repository branches.
+- Never treat another agent/chat/branch assignment as durable architecture. Current source, contracts and repository ownership are authoritative.
 
 ## Physical-safety invariants
 - Do not enumerate, open for writing, lock, eject, repartition, format or write a real USB or internal disk without separate explicit per-target authorization, regardless of broad software-development permission.
