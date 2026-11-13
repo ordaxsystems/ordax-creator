@@ -110,6 +110,38 @@ func TestAvailableUpdateNeverReplacesInstalledVersionLabel(t *testing.T) {
 }
 
 
+func TestOwnerUpdateDownloadTargetRequiresValidatedAvailableCheck(t *testing.T) {
+	valid := updateUIState{Checked: true, Available: true}
+	if got, ok := ownerUpdateDownloadTarget(valid); !ok || got != ownerUpdateBundleURL {
+		t.Fatalf("validated update download target = %q ok=%t", got, ok)
+	}
+	for _, state := range []updateUIState{
+		{},
+		{Checking: true, Checked: true, Available: true},
+		{Checked: true},
+		{Checked: true, Available: true, Error: "lineage failed"},
+		{Available: true},
+	} {
+		if got, ok := ownerUpdateDownloadTarget(state); ok || got != "" {
+			t.Fatalf("unsafe update state exposed download: %+v -> %q ok=%t", state, got, ok)
+		}
+	}
+}
+
+func TestOwnerUpdateAvailableActionIsExplicitDownloadInBothLocales(t *testing.T) {
+	if got := creatorMessageFor(creatorLocalePTBR, msgUpdateAvailableAction, nil); got != "Baixar atualização" {
+		t.Fatalf("pt-BR update action = %q", got)
+	}
+	if got := creatorMessageFor(creatorLocaleENUS, msgUpdateAvailableAction, nil); got != "Download update" {
+		t.Fatalf("en-US update action = %q", got)
+	}
+	for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+		if got := creatorMessageFor(locale, msgUpdateDownloadFailedBody, nil); got == "" || got == string(msgUpdateDownloadFailedBody) {
+			t.Fatalf("missing download failure message for %s", locale)
+		}
+	}
+}
+
 func TestOwnerUpdateCheckActionStates(t *testing.T) {
 	for _, tc := range []struct {
 		name string
