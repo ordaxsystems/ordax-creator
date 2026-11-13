@@ -22,7 +22,7 @@ Disposable OS media/ESP/QEMU proof producers live only in [`ordax-os/tools/creat
 
 ## Single-owner boundaries
 
-Creator alone will own Core, UI, adapters, source verification and narrow physical consumer helper. OrdaX Desktop must reuse the same Core. The OS alone owns authoritative boot/media contracts, OS artifact producer, release signing and physical promotion. No second image builder, artifact catalog, updater, signature root, 17-source inventory or write-consent mechanism may be added.
+Creator alone **owns** Core, UI, adapters, source verification and the narrow physical consumer helper. OrdaX Desktop must reuse this same independent Core when it presents or integrates Creator functionality. The OS alone owns authoritative boot/media contracts, OS artifact producer, release signing and physical promotion. No second image builder, artifact catalog, updater, signature root, 17-source inventory or write-consent mechanism may be added.
 
 See [AGENTS.md](AGENTS.md), [migration execution ledger](docs/MIGRATION.md), [architecture](docs/ARCHITECTURE.md), [provenance](docs/PROVENANCE.md), and the merged [OS PR #2000](https://github.com/ordaxsystems/ordax-os/pull/2000).
 
