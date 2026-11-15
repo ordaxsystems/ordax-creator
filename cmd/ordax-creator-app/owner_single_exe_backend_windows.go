@@ -45,6 +45,12 @@ type ownerPrototypeProvenance struct {
 	Schema                          string `json:"$schema"`
 	Status                          string `json:"status"`
 	SourceCommit                    string `json:"source_commit"`
+	CreatorSourceRepository         string `json:"creator_source_repository"`
+	CreatorSourceCommit             string `json:"creator_source_commit"`
+	CreatorSourceTree               string `json:"creator_source_tree"`
+	CreatorVersion                  string `json:"creator_version"`
+	SymbolSHA256                    string `json:"symbol_sha256"`
+	ThemeSHA256                     string `json:"theme_sha256"`
 	CanonicalPublicRelease          bool   `json:"canonical_public_release"`
 	EphemeralPrototypeTrust         bool   `json:"ephemeral_prototype_trust"`
 	PrivateKeyInPackage             bool   `json:"private_key_in_package"`
@@ -105,6 +111,14 @@ func decodeOwnerProvenance() (ownerPrototypeProvenance, error) {
 	if provenance.Schema != "prototype-ordax.creator-owner-physical/1" ||
 		provenance.Status != "owner-prototype-write-enabled" ||
 		!validOwnerSourceCommit(provenance.SourceCommit) ||
+		provenance.CreatorSourceRepository != "ordaxsystems/ordax-creator" ||
+		!validOwnerSourceCommit(provenance.CreatorSourceCommit) ||
+		!validOwnerSourceCommit(provenance.CreatorSourceTree) ||
+		!validCreatorVersion(provenance.CreatorVersion) ||
+		provenance.CreatorVersion != buildCreatorVersion ||
+		provenance.CreatorSourceCommit != buildCreatorSourceCommit ||
+		!validOwnerHex(provenance.SymbolSHA256, 64) ||
+		!validOwnerHex(provenance.ThemeSHA256, 64) ||
 		provenance.CanonicalPublicRelease ||
 		!provenance.EphemeralPrototypeTrust ||
 		provenance.PrivateKeyInPackage ||
@@ -140,7 +154,7 @@ func ownerPrototypeBuildInfo() (version string, sourceCommit string, ok bool) {
 	if err != nil {
 		return "", "", false
 	}
-	return "owner-" + provenance.SourceCommit[:12], provenance.SourceCommit, true
+	return provenance.CreatorVersion, provenance.SourceCommit, true
 }
 
 func hashBytes(data []byte) string {
