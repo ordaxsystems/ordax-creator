@@ -7,6 +7,7 @@ permitted destination is ORDAX-DATA on a physically validated USB disk.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -178,15 +179,86 @@ def install_bundle(target: Path, bundle: Path, commit: str, digest: str, size: i
         temp_manifest.unlink(missing_ok=True)
 
 
+def available_ordax_data_letters() -> list[str]:
+    """Read Windows volume labels cheaply; checked_volume owns disk identity."""
+    if os.name != "nt":
+        raise DeliveryError("automatic volume discovery requires Windows")
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    logical = kernel.GetLogicalDrives
+    logical.restype = wintypes.DWORD
+    volume_info = kernel.GetVolumeInformationW
+    volume_info.argtypes = [
+        wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD), wintypes.LPWSTR, wintypes.DWORD]
+    volume_info.restype = wintypes.BOOL
+    drive_mask = logical()
+    if not drive_mask:
+        raise DeliveryError("cannot list Windows logical drives")
+    matches = []
+    for index in range(26):
+        if not (drive_mask & (1 << index)):
+            continue
+        drive = chr(65 + index)
+        path = drive + ":\\"
+        label = ctypes.create_unicode_buffer(256)
+        filesystem = ctypes.create_unicode_buffer(256)
+        volume_serial = wintypes.DWORD()
+        max_component = wintypes.DWORD()
+        flags = wintypes.DWORD()
+        if volume_info(path, label, len(label), ctypes.byref(volume_serial),
+                       ctypes.byref(max_component), ctypes.byref(flags),
+                       filesystem, len(filesystem)):
+            if label.value == "ORDAX-DATA" and filesystem.value.lower() == "exfat":
+                matches.append(drive)
+    return matches
+
+
+def discover_trusted_volume(expected_serial: str) -> str | None:
+    """Find one locally authorized USB, never by drive letter or label alone."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]{4,64}", expected_serial):
+        raise DeliveryError("authorized physical USB serial is malformed")
+    matches = []
+    for letter in available_ordax_data_letters():
+        if not isinstance(letter, str) or not re.fullmatch(r"[A-Z]", letter):
+            raise DeliveryError("malformed USB drive letter")
+        try:
+            current = checked_volume(letter)
+        except DeliveryError:
+            continue
+        if str(current["serial"]).strip().casefold() == expected_serial.casefold():
+            matches.append(letter)
+    if len(matches) > 1:
+        raise DeliveryError("multiple volumes claim the authorized USB serial")
+    return matches[0] if matches else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--volume", required=True, help="ORDAX-DATA drive letter, e.g. E")
+    destination = parser.add_mutually_exclusive_group(required=True)
+    destination.add_argument("--volume", help="ORDAX-DATA drive letter, e.g. E")
+    destination.add_argument("--auto-volume", action="store_true",
+                             help="discover only the locally authorized physical USB")
+    parser.add_argument("--trusted-serial", help="USB serial selected locally, never in Git")
     parser.add_argument("--apply", action="store_true", help="stage only on verified USB data volume")
     args = parser.parse_args()
     try:
-        letter = args.volume.strip().upper().rstrip(":\\")
+        if args.apply and not args.trusted_serial:
+            raise DeliveryError("staging requires explicit locally authorized USB serial")
+        if args.auto_volume:
+            if not args.trusted_serial:
+                raise DeliveryError("automatic USB discovery requires trusted serial")
+            letter = discover_trusted_volume(args.trusted_serial)
+            if letter is None:
+                print(json.dumps({"status": "SKIP_TRUSTED_USB_NOT_PRESENT"}))
+                return 0
+        else:
+            letter = args.volume.strip().upper().rstrip(":\\")
         before = checked_volume(letter)
+        if args.trusted_serial and str(before["serial"]).strip().casefold() != args.trusted_serial.casefold():
+            raise DeliveryError("USB serial differs from locally authorized device")
         volume = Path(letter + ":\\")
         target = volume / SUBDIR
         ensure_real_ancestors(volume, target)

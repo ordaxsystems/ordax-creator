@@ -146,6 +146,11 @@ class LocalSyncTests(unittest.TestCase):
             self.assertEqual(SYNC.sync(self.root), "UPDATED_VERIFIED")
         self.assertEqual(SYNC.current_provenance(self.root)["creator_version"], "0.6.5-dev")
 
+    def test_trusted_usb_staging_defers_during_creator_physical_session(self):
+        with mock.patch.object(SYNC, "creator_process_active", return_value=True):
+            self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
+                             "DEFERRED_CREATOR_RUNNING")
+
 
 if __name__ == "__main__":
     unittest.main()
