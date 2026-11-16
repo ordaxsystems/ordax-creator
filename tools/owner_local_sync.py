@@ -8,9 +8,7 @@ as a unit, only after digest, provenance and offline executable smoke checks.
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -236,15 +234,65 @@ def verify_extracted(staging: Path, bundle: Path, manifest: dict, *, smoke: bool
 
 
 def creator_process_active() -> bool:
+    """Read the Windows process snapshot without spawning tasklist/conhost.
+
+    Task Scheduler may run in an unattended session where a captured tasklist
+    pipe never reaches EOF. No external subprocess or unbounded wait is needed
+    to decide whether the already-open Creator must defer replacement.
+    """
     if os.name != "nt":
         raise SyncError("local Creator updates require Windows")
-    result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq OrdaX-Creator.exe",
-                             "/FO", "CSV", "/NH"], capture_output=True, check=False)
-    if result.returncode != 0:
-        raise SyncError("cannot verify running Creator process")
-    text = result.stdout.decode("utf-8", errors="replace")
-    return any(row and row[0].strip().lower() == "ordax-creator.exe"
-               for row in csv.reader(io.StringIO(text)))
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessEntry(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    snapshot = kernel.CreateToolhelp32Snapshot
+    snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    snapshot.restype = wintypes.HANDLE
+    first = kernel.Process32FirstW
+    first.argtypes = (wintypes.HANDLE, ctypes.POINTER(ProcessEntry))
+    first.restype = wintypes.BOOL
+    following = kernel.Process32NextW
+    following.argtypes = (wintypes.HANDLE, ctypes.POINTER(ProcessEntry))
+    following.restype = wintypes.BOOL
+    close = kernel.CloseHandle
+    close.argtypes = (wintypes.HANDLE,)
+    close.restype = wintypes.BOOL
+
+    handle = snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if handle in (None, ctypes.c_void_p(-1).value):
+        raise SyncError("cannot obtain native Creator process snapshot")
+    try:
+        entry = ProcessEntry()
+        entry.dwSize = ctypes.sizeof(ProcessEntry)
+        if not first(handle, ctypes.byref(entry)):
+            raise SyncError("native Creator process enumeration failed")
+        while True:
+            if entry.szExeFile.casefold() == "ordax-creator.exe":
+                return True
+            ctypes.set_last_error(0)
+            if following(handle, ctypes.byref(entry)):
+                continue
+            if ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+                raise SyncError("native Creator process enumeration was incomplete")
+            return False
+    finally:
+        if not close(handle):
+            raise SyncError("cannot release native Creator process snapshot")
 
 
 def recover_interrupted_swap(root: Path) -> None:

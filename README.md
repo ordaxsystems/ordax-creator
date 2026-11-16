@@ -66,8 +66,13 @@ O sincronizador usa somente o manifesto oficial, verifica SHA-256, progressão
 Git em ambos os owners, membros do ZIP, proveniência e o smoke offline do EXE.
 Se o Creator estiver aberto ou ainda não houver release, preserva a instalação;
 a troca ocorre no próximo ciclo ocioso. A tarefa agendada do Windows pode chamar
-esse único script, sem recompilar o OS, sem tocar USB e sem alterar o canal
-Stable. Este é um mecanismo local de desenvolvimento; não é assinatura
+esse único script, sem recompilar o OS e sem alterar o canal Stable.
+A descoberta de um Creator aberto usa diretamente o snapshot de processos do
+Windows (Toolhelp32), sem `tasklist` ou subprocesso sem limite em sessão
+não interativa. O transporte Git para `ORDAX-DATA` continua sujeito ao serial
+autorizado e ao bloqueio de instâncias concorrentes.
+
+Este é um mecanismo local de desenvolvimento; não é assinatura
 Authenticode nem atualização silenciosa do aplicativo público.
 
 ## Reconexão USB no Creator Windows

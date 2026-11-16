@@ -88,6 +88,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python -m unittest discover -s tools -p 'test_owner_usb_git_delivery.py' -q
           if ($LASTEXITCODE -ne 0) { throw 'Owner USB transport regressions failed' }
+          python -m unittest discover -s tools -p 'test_owner_local_sync.py' -q
+          if ($LASTEXITCODE -ne 0) { throw 'Owner Dev local sync regressions failed' }
           python -m py_compile tools/owner_usb_git_delivery.py
           if ($LASTEXITCODE -ne 0) { throw 'Owner USB transport Python compile failed' }
           Write-Output 'OWNER_USB_GIT_SINGLE_WRITER_TESTS=PASS_NO_PHYSICAL_USB'

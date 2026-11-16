@@ -46,6 +46,13 @@ class LocalSyncTests(unittest.TestCase):
             "size": 4096,
         }
 
+    @unittest.skipUnless(__import__("os").name == "nt", "Windows-only native process snapshot")
+    def test_creator_running_check_is_native_and_never_spawns_tasklist(self):
+        with mock.patch.object(SYNC.subprocess, "run",
+                               side_effect=AssertionError("unattended task must not spawn tasklist")):
+            result = SYNC.creator_process_active()
+        self.assertIs(type(result), bool)
+
     def test_mutable_release_tag_uses_fresh_digest_bound_cache_keys(self):
         url = SYNC.fresh_manifest_url(12345)
         self.assertEqual(url, SYNC.MANIFEST_URL + "?ordax_nocache=12345")
