@@ -150,6 +150,18 @@ class LocalSyncTests(unittest.TestCase):
         with mock.patch.object(SYNC, "creator_process_active", return_value=True):
             self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
                              "DEFERRED_CREATOR_RUNNING")
+    def test_usb_is_prepared_before_creator_release_network_check(self):
+        events = []
+        with (
+            mock.patch.object(SYNC.sys, "argv",
+                              ["owner_local_sync.py", "--stage-owner-dev-usb-serial", "6699E36B"]),
+            mock.patch.object(SYNC, "stage_owner_usb_dev",
+                              side_effect=lambda serial: events.append(("usb", serial)) or "CURRENT"),
+            mock.patch.object(SYNC, "sync",
+                              side_effect=lambda *args, **kwargs: events.append(("creator", None)) or "CURRENT"),
+        ):
+            self.assertEqual(SYNC.main(), 0)
+        self.assertEqual(events, [("usb", "6699E36B"), ("creator", None)])
 
 
 if __name__ == "__main__":
