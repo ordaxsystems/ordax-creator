@@ -19,6 +19,8 @@ on:
       - version.json
       - tools/owner_release.py
       - tools/test_owner_release.py
+      - tools/owner_local_sync.py
+      - tools/test_owner_local_sync.py
   pull_request:
     paths:
       - .github/workflows/creator-standalone-ci.yml
@@ -34,6 +36,8 @@ on:
       - version.json
       - tools/owner_release.py
       - tools/test_owner_release.py
+      - tools/owner_local_sync.py
+      - tools/test_owner_local_sync.py
 
 permissions:
   contents: read
@@ -124,6 +128,7 @@ jobs:
           go test -count=1 ./...
           go vet ./...
           python3 -m unittest discover -s tools -p 'test_owner_release.py' -v
+          python3 -m unittest discover -s tools -p 'test_owner_local_sync.py' -v
           echo 'CREATOR_RELEASE_SOURCE_OWNER_TESTS=PASS'
       - name: Build deterministic Linux Native read-only target helper for OS consumer parity
         shell: bash
