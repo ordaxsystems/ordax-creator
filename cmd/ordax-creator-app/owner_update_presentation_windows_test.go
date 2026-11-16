@@ -9,12 +9,13 @@ import (
 
 func validOwnerUpdateManifestForTest() ownerUpdateManifest {
 	return ownerUpdateManifest{
-		Schema:       "prototype-ordax.creator-owner-bundle-update/1",
+		Schema:       "prototype-ordax.creator-owner-bundle-update/2",
 		Channel:      "owner-prototype",
 		Version:      "0.6.2-dev",
 		SourceCommit: strings.Repeat("b", 40),
+		CreatorSourceCommit: strings.Repeat("d", 40),
 		Artifact:     "OrdaX-Creator-Owner-Prototype.zip",
-		DownloadURL:  "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip",
+		DownloadURL:  "https://github.com/ordaxsystems/ordax-creator/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip",
 		SHA256:       strings.Repeat("c", 64),
 		Size:         889240014, // Regression: official 2026-11-01 owner bundle exceeds the old 512 MiB limit.
 	}
@@ -43,6 +44,7 @@ func TestOfficialOwnerBundleSizeAcceptedWithoutRelaxingManifestPolicy(t *testing
 	for _, mutate := range []func(*ownerUpdateManifest){
 		func(m *ownerUpdateManifest) { m.Channel = "development" },
 		func(m *ownerUpdateManifest) { m.SourceCommit = "untrusted" },
+		func(m *ownerUpdateManifest) { m.CreatorSourceCommit = "untrusted" },
 		func(m *ownerUpdateManifest) { m.SHA256 = strings.Repeat("z", 64) },
 		func(m *ownerUpdateManifest) { m.DownloadURL = "http://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip" },
 		func(m *ownerUpdateManifest) { m.AutomaticInAppUpdate = true },
