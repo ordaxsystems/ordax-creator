@@ -63,7 +63,7 @@ jobs:
           if [ -s "$RUNNER_TEMP/creator-owner-previous.json" ]; then
             args+=(--existing "$RUNNER_TEMP/creator-owner-previous.json")
           fi
-          python3 tools/owner_release.py status "\${args[@]}"
+          python3 tools/owner_release.py status "${args[@]}"
           echo "CREATOR_SOURCE_OWNER=ordaxsystems/ordax-creator"
 
   windows-publish:
