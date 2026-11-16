@@ -100,16 +100,19 @@ No OrdaX OS, o helper proprietário
 `bootstrap/dev-base/ordax-owner-usb-git` já consegue verificar/importar
 esse transporte sem ativá-lo. **O pacote não é assinado**: ele é de uso
 exclusivo Owner Development e não deve autoativar sem comprovação adicional
-da origem e handoff do Supervisor. A reconexão no Creator ainda não chama
-este script automaticamente, e o pendrive físico não é modificado até o
-consumidor estar integrado e validado.
+da origem e handoff do Supervisor.
+
+O Supervisor Owner Dev já consome este cache em modo somente leitura e só
+reutiliza objetos Git quando a `main` HTTPS confirma exatamente o mesmo commit.
+A cópia do bundle não equivale à instalação ou à ativação do OS.
 
 ### Preparação automática na tarefa Owner Dev já existente
 
 O agendador local `OrdaX Creator Dev Release Sync` pode receber o argumento
 `--stage-owner-dev-usb-serial SERIAL_LOCAL`. Não cria outra tarefa, serviço
-ou atualizador: depois da sincronização do próprio Creator, o mesmo ciclo
-chama `tools/owner_usb_git_delivery.py` com `--auto-volume --apply`.
+ou atualizador: primeiro prepara o cache USB pelo transportador canônico,
+depois sincroniza a instalação do Creator. O mesmo script
+`tools/owner_usb_git_delivery.py` é executado com `--auto-volume --apply`.
 
 A busca de volumes usa a API nativa do Windows somente para encontrar a
 partição exFAT chamada `ORDAX-DATA`. A identidade continua validada pelo
@@ -119,8 +122,9 @@ autorizado localmente. Não gravar o serial no repositório público.
 
 Quando o pendrive não está conectado, o resultado é
 `SKIP_TRUSTED_USB_NOT_PRESENT`; quando já contém a revisão verificada,
-`CURRENT`. Enquanto o Creator está aberto, a preparação não disputa o
-dispositivo. O pacote Git é gerado apenas quando a `main` local coincide
+`CURRENT`. Enquanto o Creator está aberto, a **tarefa automática** não disputa o
+dispositivo; a ação manual na interface usa a mesma exclusão mútua e exige
+seleção explícita. O pacote Git é gerado apenas quando a `main` local coincide
 com a remota, e sempre passa por SHA-256 e readback.
 
 **A preparação não altera boot, ESP, ext4, seleção de slot, Git ativo nem
@@ -128,3 +132,26 @@ instala automaticamente código não assinado.** A ativação permanece
 exclusiva do Supervisor e do `ordax-pull`, após comprovação da identidade
 do candidato. Também não transforma um cache de desenvolvimento em release
 Stable assinada.
+
+### Botão "Atualizar pendrive" no Creator Owner Development
+
+Ao selecionar explicitamente um USB elegível, o Creator oferece **Atualizar pendrive**
+sem formatar a mídia. O botão exige o binário Owner Dev autorizado e a tarefa
+local **já existente** `OrdaX Creator Dev Release Sync`, com serial físico
+localmente configurado, instância única e checkout canônico de desenvolvimento.
+O aplicativo confere também o número do disco selecionado; não aceita uma
+segunda unidade com o mesmo rótulo e não escolhe automaticamente um destino.
+
+A interface chama o mesmo `tools/owner_usb_git_delivery.py` que a tarefa
+Windows utiliza. Ambas as entradas usam um bloqueio de arquivo do próprio
+Windows, com exclusão mútua, e retornam recibos `CURRENT` ou
+`STAGED_NOT_ACTIVATED`. O único escritor valida o GitHub `main`, GPT,
+serial, volume, SHA-256 e readback antes de publicar o manifesto. A interface
+não executa `ordax-pull`, não abre `PhysicalDrive` nem escreve na ESP/ext4.
+
+**Primeira instalação da Base:** continua sendo a ação separada
+**Criar OrdaX**, com confirmação de formatação e UAC. O botão incremental
+não substitui uma Base antiga que ainda não possui o consumidor do Supervisor.
+A ativação/rollback permanece exclusivamente no OS. Fora de um ambiente
+Owner Dev configurado, a atualização incremental é bloqueada, sem procurar
+Python ou scripts arbitrários nem introduzir um caminho público alternativo.

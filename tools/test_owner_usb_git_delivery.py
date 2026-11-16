@@ -119,6 +119,29 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaisesRegex(APP.DeliveryError, "multiple volumes"):
                 APP.discover_trusted_volume("6699E36B")
 
+    def test_selected_creator_disk_number_is_an_independent_gate(self):
+        APP.enforce_selected_disk({"disk": 1}, 1)
+        APP.enforce_selected_disk({"disk": 1}, None)  # Scheduled task: serial only
+        for bad in (0, -1, 2, True):
+            with self.assertRaisesRegex(APP.DeliveryError, "disk number"):
+                APP.enforce_selected_disk({"disk": 1}, bad)
+        with self.assertRaisesRegex(APP.DeliveryError, "disk number"):
+            APP.enforce_selected_disk({"disk": "1"}, 1)
+
+class ExclusiveTransportTests(unittest.TestCase):
+    def test_one_transport_lock_rejects_concurrent_windows_writers(self):
+        import os
+        if os.name != "nt":
+            self.skipTest("Windows mandatory byte-range lock")
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.object(Path, "home", return_value=Path(temporary)):
+                with APP.exclusive_transport():
+                    with self.assertRaisesRegex(APP.DeliveryError, "already running"):
+                        with APP.exclusive_transport():
+                            pass
+                with APP.exclusive_transport():
+                    pass  # Kernel lock released after completion.
+
 
 if __name__ == "__main__":
     unittest.main()

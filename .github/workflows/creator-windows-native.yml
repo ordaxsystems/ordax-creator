@@ -82,6 +82,16 @@ jobs:
           "ORDAX_OS_CONTRACTS_DIR=$contracts" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Output "CANONICAL_OS_SOURCE_COMMIT=$actual"
           Write-Output 'OS_CONTRACT_SOURCE_AUTHORITY=READ_ONLY'
+      - name: Verify the single Owner Dev USB Git transport without disk writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m unittest discover -s tools -p 'test_owner_usb_git_delivery.py' -q
+          if ($LASTEXITCODE -ne 0) { throw 'Owner USB transport regressions failed' }
+          python -m py_compile tools/owner_usb_git_delivery.py
+          if ($LASTEXITCODE -ne 0) { throw 'Owner USB transport Python compile failed' }
+          Write-Output 'OWNER_USB_GIT_SINGLE_WRITER_TESTS=PASS_NO_PHYSICAL_USB'
+
       - name: Native Windows Go tests including isolated real Win32 control creation
         shell: pwsh
         env:
