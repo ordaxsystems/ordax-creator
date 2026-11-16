@@ -577,6 +577,23 @@ func newOwnerApplyProgressReporter(path string) func(windowsadapter.PhysicalAppl
 	}
 }
 
+// finalizeOwnerApply reports completion through the already-validated sidecar
+// when ShellExecuteExW launches the writer without an inherited stdout handle.
+// The GUI uses the child exit code and progress sidecar as its result contract;
+// attempting JSON on an invalid stdout must never make a readback-verified USB
+// appear to have failed. Direct CLI invocations retain their JSON receipt.
+func finalizeOwnerApply(progressPath string, encodeReceipt func() error) error {
+	if err := writeOwnerApplyProgress(progressPath, windowsadapter.PhysicalApplyProgress{
+		Phase: "complete", CompletedBytes: 1, TotalBytes: 1,
+	}); err != nil {
+		return fmt.Errorf("persist completed physical-write receipt: %w", err)
+	}
+	if progressPath != "" {
+		return nil
+	}
+	return encodeReceipt()
+}
+
 func runOwnerApply(args []string) error {
 	flags := flag.NewFlagSet("apply", flag.ContinueOnError)
 	confirm := flags.String("confirm", "", "confirmation token from the selected target")
@@ -641,8 +658,8 @@ func runOwnerApply(args []string) error {
 	if err := windowsadapter.FormatPortableDataVolume(target, layout.DataStartLBA, layout.DataBytes); err != nil {
 		return fmt.Errorf("finalize portable ORDAX-DATA volume: %w", err)
 	}
-	progressReporter(windowsadapter.PhysicalApplyProgress{Phase: "complete", CompletedBytes: 1, TotalBytes: 1})
-	return encodeOwner(struct {
+	return finalizeOwnerApply(progressPath, func() error {
+		return encodeOwner(struct {
 		Schema       string                             `json:"$schema"`
 		Status       string                             `json:"status"`
 		PortableData string                             `json:"portable_data"`
@@ -652,6 +669,7 @@ func runOwnerApply(args []string) error {
 		Status:       "pass-readback-verified-data-formatted",
 		PortableData: "ORDAX-DATA:exFAT:verified",
 		Result:       result,
+		})
 	})
 }
 

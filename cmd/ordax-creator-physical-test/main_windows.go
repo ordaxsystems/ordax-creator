@@ -350,8 +350,9 @@ func runApplyPortable(args []string) error {
 	if err != nil {
 		return err
 	}
-	progressReporter(windowsadapter.PhysicalApplyProgress{Phase:"complete-portable", CompletedBytes:1, TotalBytes:1})
-	return encode(result)
+	return finalizeElevatedApply(progressPath, "complete-portable", func() error {
+		return encode(result)
+	})
 }
 
 func resolveStorageProfile(value string) (ownerDevelopment bool, err error) {
@@ -472,13 +473,14 @@ func runApply(args []string) error {
 	if err := windowsadapter.FormatPortableDataVolume(target, layout.DataStartLBA, layout.DataBytes); err != nil {
 		return fmt.Errorf("finalize portable ORDAX-DATA volume: %w", err)
 	}
-	progressReporter(windowsadapter.PhysicalApplyProgress{Phase: "complete", CompletedBytes: 1, TotalBytes: 1})
-	return encode(struct {
+	return finalizeElevatedApply(progressPath, "complete", func() error {
+		return encode(struct {
 		Schema       string                             `json:"$schema"`
 		Status       string                             `json:"status"`
 		PortableData string                             `json:"portable_data"`
 		Result       windowsadapter.PhysicalApplyResult `json:"result"`
 	}{Schema: "prototype-ordax.creator-physical-test-apply/2", Status: "pass-readback-verified-data-formatted", PortableData: "ORDAX-DATA:exFAT:verified", Result: result})
+	})
 }
 
 func usage() {
