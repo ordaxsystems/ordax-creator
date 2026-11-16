@@ -52,3 +52,20 @@ pacotes USB do OS** enquanto esse pin não for atualizado e testado.
 O catálogo público de downloads pertence ao publicador oficial do OS, não a
 este arquivo. Uma versão Dev ou artefato de Actions não autoriza publicar uma
 release Stable no site.
+
+## Owner Development: atualização local verificada
+
+O código Git atualizado **não** substitui o executável aberto. O publicador do OS
+entrega apenas mídia autenticada e QEMU-verificada no canal
+`ordax-os/creator-owner-media`; o publicador independente deste repositório
+gera `creator-owner-prototype` com SHA-256 e os dois commits de origem.
+
+No Desktop de desenvolvimento, `python tools/owner_local_sync.py` sincroniza
+a instalação existente em `~/Downloads/OrdaX-Creator-Owner-Prototype/current`.
+O sincronizador usa somente o manifesto oficial, verifica SHA-256, progressão
+Git em ambos os owners, membros do ZIP, proveniência e o smoke offline do EXE.
+Se o Creator estiver aberto ou ainda não houver release, preserva a instalação;
+a troca ocorre no próximo ciclo ocioso. A tarefa agendada do Windows pode chamar
+esse único script, sem recompilar o OS, sem tocar USB e sem alterar o canal
+Stable. Este é um mecanismo local de desenvolvimento; não é assinatura
+Authenticode nem atualização silenciosa do aplicativo público.
