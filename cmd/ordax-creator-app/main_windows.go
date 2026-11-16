@@ -590,6 +590,10 @@ func renderRefresh() {
 		renderSelectionExperience(state)
 	}
 	renderUpdateUI()
+	if pendingUSBRefresh && !writeInProgress() {
+		pendingUSBRefresh = false
+		beginRefresh() // Coalesce hotplug events arriving during a discovery.
+	}
 }
 
 // Preserve an explicit USB selection only during an ordinary read-only
@@ -660,6 +664,9 @@ func renderCreatorLocaleUI() {
 
 func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	switch message {
+	case wmDeviceChange:
+		reconcileUSBDeviceChange(wParam)
+		return 0
 	case wmPaint:
 		return paintGuidedVisual(hwnd)
 	case wmEraseBkgnd:
@@ -825,6 +832,7 @@ func createMainWindow(startServices bool) {
 	// Native smoke tests create the real Win32 controls without starting
 	// discovery, downloads, update checks, elevation or any physical I/O.
 	if startServices {
+		creatorServicesStarted = true
 		procShowWindow.Call(mainWindow, swShow)
 		procUpdateWindow.Call(mainWindow)
 		beginRefresh()

@@ -238,7 +238,11 @@ def sync(root: Path, *, check_only: bool = False) -> str:
             bundle = download_bundle(remote, root / ".ordax-update-cache")
             stage = Path(tempfile.mkdtemp(prefix=".ordax-next-", dir=root))
             try:
-                verify_extracted(stage, bundle, remote)
+                # Task Scheduler may run in a noninteractive Windows session;
+                # the publisher already runs the real GUI smoke on Windows.
+                # Local safety relies on release SHA-256, exact ZIP membership,
+                # provenance, lineage and the binary header, not a GUI window.
+                verify_extracted(stage, bundle, remote, smoke=False)
                 if creator_process_active():
                     return "DEFERRED_CREATOR_RUNNING"
                 installed = root / "current"
