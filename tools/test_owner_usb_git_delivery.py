@@ -95,6 +95,30 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(APP.DeliveryError, "unsafe USB pending path"):
             APP.install_bundle(self.delivery, self.bundle, self.sha, digest, size)
 
+    def test_auto_discovery_stages_only_local_serial_match(self):
+        with (
+            mock.patch.object(APP, "available_ordax_data_letters", return_value=["E", "F"]),
+            mock.patch.object(APP, "checked_volume",
+                              side_effect=[{"serial": "UNTRUSTED"}, {"serial": "6699E36B"}]) as checked,
+        ):
+            self.assertEqual(APP.discover_trusted_volume("6699e36b"), "F")
+        self.assertEqual(checked.call_count, 2)
+
+    def test_auto_discovery_with_no_trusted_usb_is_read_only(self):
+        with mock.patch.object(APP, "available_ordax_data_letters", return_value=[]):
+            self.assertIsNone(APP.discover_trusted_volume("6699E36B"))
+        with self.assertRaisesRegex(APP.DeliveryError, "malformed"):
+            APP.discover_trusted_volume("bad serial; injection")
+
+    def test_auto_discovery_rejects_ambiguous_authorized_serial(self):
+        with (
+            mock.patch.object(APP, "available_ordax_data_letters", return_value=["E", "F"]),
+            mock.patch.object(APP, "checked_volume",
+                              side_effect=[{"serial": "6699E36B"}, {"serial": "6699E36B"}]),
+        ):
+            with self.assertRaisesRegex(APP.DeliveryError, "multiple volumes"):
+                APP.discover_trusted_volume("6699E36B")
+
 
 if __name__ == "__main__":
     unittest.main()

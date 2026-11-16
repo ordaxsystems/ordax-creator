@@ -103,3 +103,28 @@ exclusivo Owner Development e não deve autoativar sem comprovação adicional
 da origem e handoff do Supervisor. A reconexão no Creator ainda não chama
 este script automaticamente, e o pendrive físico não é modificado até o
 consumidor estar integrado e validado.
+
+### Preparação automática na tarefa Owner Dev já existente
+
+O agendador local `OrdaX Creator Dev Release Sync` pode receber o argumento
+`--stage-owner-dev-usb-serial SERIAL_LOCAL`. Não cria outra tarefa, serviço
+ou atualizador: depois da sincronização do próprio Creator, o mesmo ciclo
+chama `tools/owner_usb_git_delivery.py` com `--auto-volume --apply`.
+
+A busca de volumes usa a API nativa do Windows somente para encontrar a
+partição exFAT chamada `ORDAX-DATA`. A identidade continua validada pelo
+**único verificador físico existente**, exigindo GPT ESP/Linux/DATA, conexão
+USB, disco diferente do sistema e comparação exata com o serial físico
+autorizado localmente. Não gravar o serial no repositório público.
+
+Quando o pendrive não está conectado, o resultado é
+`SKIP_TRUSTED_USB_NOT_PRESENT`; quando já contém a revisão verificada,
+`CURRENT`. Enquanto o Creator está aberto, a preparação não disputa o
+dispositivo. O pacote Git é gerado apenas quando a `main` local coincide
+com a remota, e sempre passa por SHA-256 e readback.
+
+**A preparação não altera boot, ESP, ext4, seleção de slot, Git ativo nem
+instala automaticamente código não assinado.** A ativação permanece
+exclusiva do Supervisor e do `ordax-pull`, após comprovação da identidade
+do candidato. Também não transforma um cache de desenvolvimento em release
+Stable assinada.

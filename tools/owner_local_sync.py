@@ -285,11 +285,40 @@ def sync(root: Path, *, check_only: bool = False) -> str:
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+def stage_owner_usb_dev(expected_serial: str) -> str:
+    """Reuse existing Owner Git deliverer; no second update service or raw disk API."""
+    if creator_process_active():
+        return "DEFERRED_CREATOR_RUNNING"
+    delivery = Path(__file__).with_name("owner_usb_git_delivery.py")
+    os_repo = Path(__file__).resolve().parents[2] / "ordax-os"
+    if not delivery.is_file() or not (os_repo / ".git").is_dir():
+        raise SyncError("canonical Owner Git deliverer or OS checkout unavailable")
+    command = [sys.executable, str(delivery), "--repo", str(os_repo),
+               "--auto-volume", "--trusted-serial", expected_serial, "--apply"]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True,
+                                   timeout=300, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SyncError("bounded Owner USB Git staging failed") from exc
+    if completed.returncode:
+        raise SyncError("Owner USB Git staging blocked: " + completed.stderr.strip()[-350:])
+    try:
+        receipt = json.loads(completed.stdout)
+    except ValueError as exc:
+        raise SyncError("Owner USB Git staging returned no valid receipt") from exc
+    status = receipt.get("status")
+    if status not in ("CURRENT", "STAGED_NOT_ACTIVATED", "SKIP_TRUSTED_USB_NOT_PRESENT"):
+        raise SyncError("Owner USB Git staging returned unknown status")
+    return status
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--install-root", type=Path,
                    default=Path.home() / "Downloads" / "OrdaX-Creator-Owner-Prototype")
     p.add_argument("--check-only", action="store_true")
+    p.add_argument("--stage-owner-dev-usb-serial",
+                   help="locally authorized serial for non-activating Git transfer")
     args = p.parse_args()
     try:
         result = sync(args.install_root, check_only=args.check_only)
@@ -298,6 +327,13 @@ def main() -> int:
         print(f"OWNER_CREATOR_LOCAL_SYNC=BLOCKED:{type(exc).__name__}:{exc}", file=sys.stderr)
         return 1
     print("OWNER_CREATOR_LOCAL_SYNC=" + result)
+    if args.stage_owner_dev_usb_serial and not args.check_only and result != "SKIP_ALREADY_RUNNING":
+        try:
+            staged = stage_owner_usb_dev(args.stage_owner_dev_usb_serial)
+        except (SyncError, ValueError) as exc:
+            print(f"OWNER_DEV_USB_GIT_STAGE=BLOCKED:{exc}", file=sys.stderr)
+            return 1
+        print("OWNER_DEV_USB_GIT_STAGE=" + staged)
     return 0
 
 
