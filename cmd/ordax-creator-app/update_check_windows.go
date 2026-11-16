@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	ownerUpdateManifestURL = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/creator-owner-update.json"
-	ownerUpdateBundleURL   = "https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip"
+	ownerUpdateManifestURL = "https://github.com/ordaxsystems/ordax-creator/releases/download/creator-owner-prototype/creator-owner-update.json"
+	ownerUpdateBundleURL   = "https://github.com/ordaxsystems/ordax-creator/releases/download/creator-owner-prototype/OrdaX-Creator-Owner-Prototype.zip"
 	// The signed-source owner bundle includes system images and may exceed
 	// 512 MiB. This is only a bounded read-only manifest check, never a
 	// download/installation entitlement or a physical-write authorization.
@@ -38,6 +38,7 @@ type ownerUpdateManifest struct {
 	Channel              string `json:"channel"`
 	Version              string `json:"version"`
 	SourceCommit         string `json:"source_commit"`
+	CreatorSourceCommit  string `json:"creator_source_commit"`
 	Artifact             string `json:"artifact"`
 	DownloadURL          string `json:"download_url"`
 	SHA256               string `json:"sha256"`
@@ -52,6 +53,7 @@ type updateUIState struct {
 	Available    bool
 	Version      string
 	SourceCommit string
+	CreatorSourceCommit string
 	Error        string
 }
 
@@ -68,14 +70,14 @@ func validLowerHexString(value string, size int) bool {
 }
 
 func validateOwnerUpdateManifest(manifest ownerUpdateManifest) error {
-	if manifest.Schema != "prototype-ordax.creator-owner-bundle-update/1" {
+	if manifest.Schema != "prototype-ordax.creator-owner-bundle-update/2" {
 		return errors.New("Creator update manifest schema is incompatible")
 	}
 	if manifest.Channel != "owner-prototype" {
 		return errors.New("Creator update channel is unexpected")
 	}
-	if !validLowerHexString(manifest.SourceCommit, 40) {
-		return errors.New("Creator update source_commit is invalid")
+	if !validLowerHexString(manifest.SourceCommit, 40) || !validLowerHexString(manifest.CreatorSourceCommit, 40) {
+		return errors.New("Creator update OS/Creator source commits are invalid")
 	}
 	if !validCreatorVersion(manifest.Version) {
 		return errors.New("Creator update version is invalid")
@@ -134,28 +136,33 @@ func fetchOwnerUpdateManifest() (ownerUpdateManifest, error) {
 	return manifest, nil
 }
 
-func ownerUpdateIsForward(currentSource, candidateSource string) (bool, error) {
-	if currentSource == candidateSource {
-		return false, nil
+// Compare independent source histories; no downgrades when one owner updates.
+func ownerUpdateRevisionRelation(repository, currentSource, candidateSource string) (int, error) {
+	if repository != "ordax-os" && repository != "ordax-creator" {
+		return 0, errors.New("untrusted Creator update repository")
 	}
 	if !validLowerHexString(currentSource, 40) || !validLowerHexString(candidateSource, 40) {
-		return false, errors.New("Creator update lineage cannot be validated")
+		return 0, errors.New("Creator update lineage cannot be validated")
 	}
-	compareURL := "https://api.github.com/repos/ordaxsystems/ordax-os/compare/" + currentSource + "..." + candidateSource + "?per_page=1"
+	if currentSource == candidateSource {
+		return 0, nil
+	}
+	compareURL := "https://api.github.com/repos/ordaxsystems/" + repository +
+		"/compare/" + currentSource + "..." + candidateSource + "?per_page=1"
 	client := &http.Client{Timeout: 20 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, compareURL, nil)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	req.Header.Set("User-Agent", "OrdaX-Creator-Owner-Updater/4")
+	req.Header.Set("User-Agent", "OrdaX-Creator-Owner-Updater/5")
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("Creator anti-downgrade validation returned HTTP %d", resp.StatusCode)
+		return 0, fmt.Errorf("Creator revision ancestry check returned HTTP %d", resp.StatusCode)
 	}
 	var comparison struct {
 		Status   string `json:"status"`
@@ -164,21 +171,21 @@ func ownerUpdateIsForward(currentSource, candidateSource string) (bool, error) {
 	}
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, 16<<20))
 	if err := decoder.Decode(&comparison); err != nil {
-		return false, fmt.Errorf("decode Creator lineage comparison: %w", err)
+		return 0, fmt.Errorf("decode Creator revision ancestry: %w", err)
 	}
 	switch comparison.Status {
 	case "ahead":
 		if comparison.AheadBy > 0 && comparison.BehindBy == 0 {
-			return true, nil
+			return 1, nil
 		}
 	case "behind":
 		if comparison.BehindBy > 0 && comparison.AheadBy == 0 {
-			return false, nil
+			return -1, nil
 		}
 	case "identical":
-		return false, nil
+		return 0, nil
 	}
-	return false, fmt.Errorf("published Creator history diverges from the current version; update blocked (status=%s)", comparison.Status)
+	return 0, fmt.Errorf("Creator source history diverged (repository=%s status=%s)", repository, comparison.Status)
 }
 
 func beginUpdateCheck(manual bool) {
@@ -210,12 +217,24 @@ func beginUpdateCheck(manual bool) {
 		} else {
 			state.Version = manifest.Version
 			state.SourceCommit = manifest.SourceCommit
-			forward, forwardErr := ownerUpdateIsForward(currentSource, manifest.SourceCommit)
-			if forwardErr != nil && manifest.SourceCommit != currentSource {
-				state.Error = forwardErr.Error()
+			state.CreatorSourceCommit = manifest.CreatorSourceCommit
+			_, currentCreatorSource, bound := creatorBinaryBuildIdentity()
+			if !bound {
+				state.Error = "Installed Creator executable identity is not bound"
 			} else {
-				state.Available = forward
-				state.Checked = true
+				osRelation, osErr := ownerUpdateRevisionRelation("ordax-os", currentSource, manifest.SourceCommit)
+				creatorRelation, creatorErr := ownerUpdateRevisionRelation("ordax-creator", currentCreatorSource, manifest.CreatorSourceCommit)
+				switch {
+				case osErr != nil:
+					state.Error = osErr.Error()
+				case creatorErr != nil:
+					state.Error = creatorErr.Error()
+				case osRelation < 0 || creatorRelation < 0:
+					state.Error = "Creator update would downgrade an installed OS image or Creator executable"
+				default:
+					state.Available = osRelation > 0 || creatorRelation > 0
+					state.Checked = true
+				}
 			}
 		}
 		updateMu.Lock()
@@ -245,8 +264,10 @@ func ownerUpdateManualMessage(installedVersion, installedSource string, state up
 }
 
 func showOwnerUpdateManualMessage(state updateUIState) {
-	installedVersion, installedSource, _ := ownerPrototypeBuildInfo()
-	messageBox(ownerUpdateManualMessage(installedVersion, installedSource, state),
+	installedVersion, _, _ := ownerPrototypeBuildInfo()
+	_, installedCreatorSource, _ := creatorBinaryBuildIdentity()
+	state.SourceCommit = state.CreatorSourceCommit
+	messageBox(ownerUpdateManualMessage(installedVersion, installedCreatorSource, state),
 		creatorT(msgUpdateAvailableTitle), mbOK|mbIconInformation)
 }
 
