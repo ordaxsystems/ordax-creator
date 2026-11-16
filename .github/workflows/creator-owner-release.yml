@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     outputs:
-      publish_required: \${{ steps.check.outputs.publish_required }}
+      publish_required: ${{ steps.check.outputs.publish_required }}
     steps:
       - name: Checkout immutable Creator source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,7 +40,7 @@ jobs:
         id: check
         shell: bash
         env:
-          CREATOR_SHA: \${{ github.sha }}
+          CREATOR_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           base='https://github.com/ordaxsystems/ordax-os/releases/download/creator-owner-media'
@@ -74,8 +74,8 @@ jobs:
     permissions:
       contents: write
     env:
-      GH_TOKEN: \${{ github.token }}
-      CREATOR_SHA: \${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+      CREATOR_SHA: ${{ github.sha }}
     steps:
       - name: Checkout exact Creator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -132,8 +132,8 @@ jobs:
       - name: Test actual packaged Win32 UI with physical writer disabled
         shell: pwsh
         env:
-          ORDAX_CREATOR_PACKAGE_EXPECT_VERSION: \${{ env.CREATOR_PRODUCT_VERSION }}
-          ORDAX_CREATOR_PACKAGE_EXPECT_SOURCE: \${{ github.sha }}
+          ORDAX_CREATOR_PACKAGE_EXPECT_VERSION: ${{ env.CREATOR_PRODUCT_VERSION }}
+          ORDAX_CREATOR_PACKAGE_EXPECT_SOURCE: ${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           $exe = Join-Path $env:RUNNER_TEMP 'OrdaX-Creator/OrdaX-Creator.exe'
