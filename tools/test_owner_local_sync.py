@@ -146,6 +146,45 @@ class LocalSyncTests(unittest.TestCase):
             self.assertEqual(SYNC.sync(self.root), "UPDATED_VERIFIED")
         self.assertEqual(SYNC.current_provenance(self.root)["creator_version"], "0.6.5-dev")
 
+    def test_local_git_lineage_fast_path_never_calls_remote_compare(self):
+        import subprocess
+        repo = self.root / "git-source"
+        subprocess.run(["git", "init", "-b", "main", str(repo)], check=True,
+                       capture_output=True)
+        def run(*args):
+            return subprocess.run(["git", "-C", str(repo), *args], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        run("config", "user.email", "ci@example.invalid")
+        run("config", "user.name", "CI")
+        run("remote", "add", "origin", "https://github.com/ordaxsystems/ordax-os.git")
+        (repo / "first.txt").write_text("first", encoding="utf-8")
+        run("add", "first.txt")
+        run("commit", "-m", "first")
+        old = run("rev-parse", "HEAD")
+        (repo / "second.txt").write_text("second", encoding="utf-8")
+        run("add", "second.txt")
+        run("commit", "-m", "second")
+        new = run("rev-parse", "HEAD")
+        with (
+            mock.patch.object(SYNC, "local_repo_path", return_value=repo),
+            mock.patch.object(SYNC, "request_json") as remote,
+        ):
+            self.assertEqual(SYNC.source_relation("ordax-os", old, new), 1)
+            remote.assert_not_called()
+            with self.assertRaises(SYNC.SyncError):
+                SYNC.source_relation("ordax-os", new, old)
+            remote.assert_not_called()
+
+    def test_noncanonical_local_source_falls_back_to_remote_authority(self):
+        with (
+            mock.patch.object(SYNC, "local_repo_path", return_value=self.root / "missing"),
+            mock.patch.object(SYNC, "request_json", return_value={
+                "status": "ahead", "ahead_by": 2, "behind_by": 0
+            }) as remote,
+        ):
+            self.assertEqual(SYNC.source_relation("ordax-os", "a"*40, "b"*40), 1)
+            remote.assert_called_once()
+
     def test_trusted_usb_staging_defers_during_creator_physical_session(self):
         with mock.patch.object(SYNC, "creator_process_active", return_value=True):
             self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),

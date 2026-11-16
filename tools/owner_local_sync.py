@@ -121,11 +121,48 @@ def current_provenance(root: Path) -> dict:
     return data
 
 
+def local_repo_path(repository: str) -> Path:
+    return Path(__file__).resolve().parents[2] / repository
+
+
+def local_source_relation(repository: str, installed: str, candidate: str) -> int | None:
+    """Use the canonical local Git history, without transferring a giant Compare diff."""
+    repo = local_repo_path(repository)
+    if repo.is_symlink() or not (repo / ".git").is_dir() or (repo / ".git").is_symlink():
+        return None
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              text=True, check=False, timeout=12)
+
+    try:
+        if (git("symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip() != "main"
+                or git("remote", "get-url", "origin").stdout.strip()
+                != f"https://github.com/ordaxsystems/{repository}.git"
+                or git("diff", "--quiet", "HEAD", "--").returncode != 0):
+            return None
+        for revision in (installed, candidate):
+            if git("cat-file", "-e", revision + "^{commit}").returncode != 0:
+                return None
+        # A release can legitimately lag the latest main; it must never point
+        # to a commit unreachable from that same verified local main lineage.
+        if git("merge-base", "--is-ancestor", candidate, "HEAD").returncode != 0:
+            return None
+        if git("merge-base", "--is-ancestor", installed, candidate).returncode != 0:
+            raise SyncError(f"{repository} local Git history is not fast-forward")
+        return 1
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def source_relation(repository: str, installed: str, candidate: str) -> int:
     if installed == candidate:
         return 0
     if repository not in ("ordax-os", "ordax-creator"):
         raise SyncError("invalid history owner")
+    local_relation = local_source_relation(repository, installed, candidate)
+    if local_relation is not None:
+        return local_relation
     url = f"https://api.github.com/repos/ordaxsystems/{repository}/compare/{installed}...{candidate}?per_page=1"
     relation = request_json(url, 16 << 20)
     if (relation.get("status") == "ahead"
