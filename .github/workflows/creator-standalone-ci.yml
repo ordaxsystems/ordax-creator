@@ -17,6 +17,8 @@ on:
       - update/**
       - go.mod
       - version.json
+      - tools/owner_release.py
+      - tools/test_owner_release.py
   pull_request:
     paths:
       - .github/workflows/creator-standalone-ci.yml
@@ -30,6 +32,8 @@ on:
       - update/**
       - go.mod
       - version.json
+      - tools/owner_release.py
+      - tools/test_owner_release.py
 
 permissions:
   contents: read
@@ -119,6 +123,8 @@ jobs:
           set -euo pipefail
           go test -count=1 ./...
           go vet ./...
+          python3 -m unittest discover -s tools -p 'test_owner_release.py' -v
+          echo 'CREATOR_RELEASE_SOURCE_OWNER_TESTS=PASS'
       - name: Build deterministic Linux Native read-only target helper for OS consumer parity
         shell: bash
         run: |
