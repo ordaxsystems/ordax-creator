@@ -112,6 +112,31 @@ class LocalSyncTests(unittest.TestCase):
         SYNC.recover_interrupted_swap(self.root)
         self.assertEqual(SYNC.current_provenance(self.root), self.old)
 
+    @unittest.skipUnless(__import__("os").name == "nt", "Windows-only local updater")
+    def test_headless_verified_update_does_not_launch_gui_smoke(self):
+        bundle = self.root / "verified.zip"
+        bundle.write_bytes(b"already-verified-by-publisher")
+        def staged(stage, archive, manifest, *, smoke):
+            self.assertFalse(smoke, "Task Scheduler cannot perform interactive Win32 smoke")
+            self.assertEqual(archive, bundle)
+            target = stage / "OrdaX-Creator"
+            target.mkdir()
+            (target / "provenance.json").write_text(json.dumps({
+                **self.old,
+                "source_commit": manifest["source_commit"],
+                "creator_source_commit": manifest["creator_source_commit"],
+                "creator_version": manifest["version"],
+            }), encoding="utf-8")
+        with (
+            mock.patch.object(SYNC, "request_json", return_value=self.manifest),
+            mock.patch.object(SYNC, "source_relation", return_value=1),
+            mock.patch.object(SYNC, "creator_process_active", return_value=False),
+            mock.patch.object(SYNC, "download_bundle", return_value=bundle),
+            mock.patch.object(SYNC, "verify_extracted", side_effect=staged),
+        ):
+            self.assertEqual(SYNC.sync(self.root), "UPDATED_VERIFIED")
+        self.assertEqual(SYNC.current_provenance(self.root)["creator_version"], "0.6.5-dev")
+
 
 if __name__ == "__main__":
     unittest.main()

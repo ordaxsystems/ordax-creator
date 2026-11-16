@@ -69,3 +69,17 @@ a troca ocorre no próximo ciclo ocioso. A tarefa agendada do Windows pode chama
 esse único script, sem recompilar o OS, sem tocar USB e sem alterar o canal
 Stable. Este é um mecanismo local de desenvolvimento; não é assinatura
 Authenticode nem atualização silenciosa do aplicativo público.
+
+## Reconexão USB no Creator Windows
+
+Com a interface do Creator aberta, inserção, remoção ou mudança de topologia
+USB provoca uma nova descoberta de dispositivos. O refresh reutiliza a
+identidade física (serial/índice/token) e não seleciona discos novos. Inserção
+também consulta o canal de atualização do próprio Creator. Eventos recebidos
+durante uma descoberta são reconciliados ao terminar; uma gravação ativa ou
+um resultado terminal não é interrompido.
+
+**Limite atual:** detectar o USB **não é** autorização para formatá-lo.
+O fluxo físico existente exige seleção, pré-validação, UAC e readback. O
+`ordax-pull` pertence ao OS em execução; o Windows não executa diretamente
+o shell Linux do pendrive. O release-agent do OS ja aceita pacotes assinados com --local-bundle. Ainda falta integrar a entrega Portable oficial e a ativacao no boot. Nenhum arquivo de atualizacao sem consumidor sera gravado na particao de dados.
