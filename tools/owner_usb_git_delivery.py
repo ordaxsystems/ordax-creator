@@ -7,6 +7,7 @@ permitted destination is ORDAX-DATA on a physically validated USB disk.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import ctypes
 import hashlib
 import json
@@ -30,6 +31,34 @@ MANIFEST = "owner-git-bundle.txt"
 
 class DeliveryError(RuntimeError):
     pass
+
+
+@contextmanager
+def exclusive_transport():
+    """The GUI and the existing Windows task share one Owner USB writer."""
+    if os.name != "nt":
+        yield
+        return
+    import msvcrt
+    root = Path.home() / "AppData" / "Local" / "OrdaX-Creator"
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock = root / "owner-usb-git.lock"
+    if lock.is_symlink() or (hasattr(lock, "is_junction") and lock.is_junction()):
+        raise DeliveryError("unsafe USB transport lock path")
+    with lock.open("a+b") as handle:
+        # LockFile permits a byte-range beyond EOF. Do not read or modify
+        # the locked byte: Windows denies even same-process reads while it is
+        # held by another descriptor. Only the kernel owns this mutex.
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            raise DeliveryError("Owner USB transport already running") from exc
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def git(repo: Path, *args: str, timeout=90) -> str:
@@ -138,6 +167,12 @@ $types=@(Get-Partition -DiskNumber $d.Number | ForEach-Object {{ $_.GptType.ToSt
     return value
 
 
+def enforce_selected_disk(identity: dict, expected: int | None) -> None:
+    if expected is not None and (type(expected) is not int or expected < 0 or
+                                 type(identity.get("disk")) is not int or identity["disk"] != expected):
+        raise DeliveryError("USB disk number differs from the explicit Creator selection")
+
+
 def ensure_real_ancestors(volume: Path, target: Path) -> None:
     current = volume
     for part in target.relative_to(volume).parts:
@@ -242,8 +277,19 @@ def main() -> int:
     destination.add_argument("--auto-volume", action="store_true",
                              help="discover only the locally authorized physical USB")
     parser.add_argument("--trusted-serial", help="USB serial selected locally, never in Git")
+    parser.add_argument("--trusted-disk-number", type=int,
+                        help="also require selected Windows physical disk number")
     parser.add_argument("--apply", action="store_true", help="stage only on verified USB data volume")
     args = parser.parse_args()
+    try:
+        with exclusive_transport():
+            return deliver(args)
+    except DeliveryError as exc:
+        print("OWNER_USB_GIT_DELIVERY=BLOCKED:" + str(exc), file=sys.stderr)
+        return 2
+
+
+def deliver(args: argparse.Namespace) -> int:
     try:
         if args.apply and not args.trusted_serial:
             raise DeliveryError("staging requires explicit locally authorized USB serial")
@@ -257,6 +303,7 @@ def main() -> int:
         else:
             letter = args.volume.strip().upper().rstrip(":\\")
         before = checked_volume(letter)
+        enforce_selected_disk(before, args.trusted_disk_number)
         if args.trusted_serial and str(before["serial"]).strip().casefold() != args.trusted_serial.casefold():
             raise DeliveryError("USB serial differs from locally authorized device")
         volume = Path(letter + ":\\")

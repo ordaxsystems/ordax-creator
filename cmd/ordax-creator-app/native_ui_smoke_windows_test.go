@@ -40,6 +40,7 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
         "locale": localeCombo,
         "device": deviceCombo,
         "update": updateButton,
+        "usb-git-update": usbUpdateButton,
         "refresh": refreshButton,
         "write": writeButton,
         "boot-help": bootHelpButton,
@@ -47,6 +48,10 @@ func TestWindowsNativeUIInitializesWithoutAnyPhysicalIO(t *testing.T) {
         if handle == 0 {
             t.Errorf("missing native %s control", name)
         }
+    }
+    if usbUpdateButton != 0 {
+        enabled, _, _ := user32.NewProc("IsWindowEnabled").Call(usbUpdateButton)
+        if enabled != 0 { t.Fatal("incremental USB action enabled without explicit device selection") }
     }
     if writeButton != 0 {
         enabled, _, _ := user32.NewProc("IsWindowEnabled").Call(writeButton)

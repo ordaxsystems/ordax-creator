@@ -32,6 +32,7 @@ const (
 	wmAppWriteProgress = wmApp + 2
 	wmAppWriteDone     = wmApp + 3
 	wmAppUpdateDone    = wmApp + 4
+	wmAppUSBUpdateDone = wmApp + 5
 
 	wsOverlappedWindow = 0x00CF0000
 	wsVisible          = 0x10000000
@@ -63,6 +64,7 @@ const (
 	idProgress    = 1008
 	idBootHelp    = 1009
 	idLocaleCombo = 1010
+	idUSBUpdate = 1011
 
 	cbAddString    = 0x0143
 	cbResetContent = 0x014B
@@ -102,6 +104,7 @@ var (
 	localeCombo    uintptr
 	refreshButton  uintptr
 	updateButton   uintptr
+	usbUpdateButton uintptr
 	writeButton    uintptr
 	bootHelpButton uintptr
 
@@ -505,6 +508,7 @@ func renderSelectionExperience(state appRefreshState) {
 		setCreatorStatus(creatorT(msgRefreshSearching))
 		setCreatorHint(creatorT(msgRefreshHint))
 		enable(writeButton, false)
+		enable(usbUpdateButton, false)
 		return
 	}
 	setText(bootHelpButton, creatorT(msgActionBootHelp))
@@ -521,8 +525,9 @@ func renderSelectionExperience(state appRefreshState) {
 	}
 	setCreatorHint(hint)
 
-	busy := writeInProgress()
+	busy := writeInProgress() || ownerUSBUpdateInProgress()
 	enable(writeButton, !busy && view.Step == creatorStepReview && view.CanContinue)
+	enable(usbUpdateButton, !busy && view.Step == creatorStepReview && view.CanContinue)
 	if view.Step == creatorStepReview && view.PrimaryAction != "" {
 		setText(writeButton, view.PrimaryAction)
 	} else {
@@ -693,7 +698,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	case wmCommand:
 		id := int(loword(wParam))
 		notify := hiword(wParam)
-		if id == idLocaleCombo && notify == cbnSelChange && !writeInProgress() {
+		if id == idLocaleCombo && notify == cbnSelChange && !writeInProgress() && !ownerUSBUpdateInProgress() {
 			if locale, ok := selectedCreatorLocale(); ok && locale != currentCreatorLocale() {
 				setCreatorLocale(string(locale))
 				_ = saveCreatorLocalePreference(locale)
@@ -702,14 +707,21 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			return 0
 		}
 		if id == idDeviceCombo && notify == cbnSelChange {
+			if ownerUSBUpdateInProgress() { return 0 }
 			updateSelectionUI()
 			return 0
 		}
 		if id == idRefresh && notify == bnClicked {
+			if ownerUSBUpdateInProgress() { return 0 }
 			beginRefresh()
 			return 0
 		}
+		if id == idUSBUpdate && notify == bnClicked {
+			beginOwnerUSBUpdate()
+			return 0
+		}
 		if id == idUpdate && notify == bnClicked {
+			if ownerUSBUpdateInProgress() { return 0 }
 			handleUpdateButton()
 			return 0
 		}
@@ -730,7 +742,7 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		if id == idWrite && notify == bnClicked {
 			// Disabled controls can still have queued WM_COMMAND messages.
 			// Never consume a stale selection during an asynchronous refresh.
-			if refreshInProgress {
+			if refreshInProgress || ownerUSBUpdateInProgress() {
 				return 0
 			}
 			terminalError, terminalSuccess := physicalWriteTerminalFlags()
@@ -757,10 +769,17 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		renderWriteDone()
 		invalidateGuidedVisual()
 		return 0
+	case wmAppUSBUpdateDone:
+		renderOwnerUSBUpdateDone()
+		return 0
 	case wmAppUpdateDone:
 		renderUpdateDone()
 		return 0
 	case wmClose:
+		if ownerUSBUpdateInProgress() {
+			messageBox(creatorT(msgUSBUpdateWorkingHint), windowTitle, mbOK|mbIconInformation)
+			return 0
+		}
 		if writeInProgress() {
 			showWriteBusyMessage()
 			return 0
@@ -821,6 +840,7 @@ func createMainWindow(startServices bool) {
 	}
 	deviceCombo = createControl("COMBOBOX", "", wsTabStop|wsVScroll|cbsDropDownList|cbsOwnerDrawFixed|cbsHasStrings|wsDisabled, 364, 224, 415, 216, idDeviceCombo)
 	updateButton = createControl("BUTTON", creatorT(msgUpdateControl), wsTabStop|bsOwnerDraw, 365, 630, 128, 43, idUpdate)
+	usbUpdateButton = createControl("BUTTON", creatorT(msgUSBUpdateAction), wsTabStop|bsOwnerDraw|wsDisabled, 855, 553, 255, 43, idUSBUpdate)
 	refreshButton = createControl("BUTTON", creatorT(msgActionReloadUSB), wsTabStop|bsOwnerDraw, 501, 630, 138, 43, idRefresh)
 	writeButton = createControl("BUTTON", creatorT(msgActionCreate), wsTabStop|bsOwnerDraw|wsDisabled, 648, 630, 150, 43, idWrite)
 	bootHelpButton = createControl("BUTTON", creatorT(msgActionBootHelp), wsTabStop|bsOwnerDraw, 855, 610, 255, 43, idBootHelp)

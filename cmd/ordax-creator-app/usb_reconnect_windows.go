@@ -29,7 +29,7 @@ func usbTopologyChanged(event uintptr) bool {
 }
 
 func reconcileUSBDeviceChange(event uintptr) {
-    if !creatorServicesStarted || !usbTopologyChanged(event) || writeInProgress() {
+    if !creatorServicesStarted || !usbTopologyChanged(event) || writeInProgress() || ownerUSBUpdateInProgress() {
         return
     }
     failed, succeeded := physicalWriteTerminalFlags()

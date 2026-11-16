@@ -340,7 +340,7 @@ func renderUpdateUI() {
 	updateMu.Lock()
 	state := currentUpdateState
 	updateMu.Unlock()
-	if writeInProgress() {
+	if writeInProgress() || ownerUSBUpdateInProgress() {
 		enable(updateButton, false)
 		return
 	}
@@ -354,7 +354,7 @@ func renderUpdateDone() {
 	state := currentUpdateState
 	updateMu.Unlock()
 	renderUpdateUI()
-	if !ownerUpdateMayShowDialog(state, writeInProgress(), refreshInProgress) {
+	if !ownerUpdateMayShowDialog(state, writeInProgress() || ownerUSBUpdateInProgress(), refreshInProgress) {
 		return
 	}
 
