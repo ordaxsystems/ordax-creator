@@ -104,3 +104,18 @@ func newApplyProgressReporter(path string) func(windowsadapter.PhysicalApplyProg
 		lastWrite = now
 	}
 }
+
+// finalizeElevatedApply uses the sidecar as the GUI result contract.
+// ShellExecuteExW(runas) does not supply a valid stdout handle to a hidden
+// elevated child. Keep direct CLI JSON receipts only when no sidecar is given.
+func finalizeElevatedApply(progressPath, phase string, encodeReceipt func() error) error {
+	if err := writeApplyProgressSnapshot(progressPath, windowsadapter.PhysicalApplyProgress{
+		Phase: phase, CompletedBytes: 1, TotalBytes: 1,
+	}); err != nil {
+		return fmt.Errorf("persist completed physical-write receipt: %w", err)
+	}
+	if progressPath != "" {
+		return nil
+	}
+	return encodeReceipt()
+}
