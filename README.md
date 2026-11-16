@@ -83,3 +83,23 @@ um resultado terminal não é interrompido.
 O fluxo físico existente exige seleção, pré-validação, UAC e readback. O
 `ordax-pull` pertence ao OS em execução; o Windows não executa diretamente
 o shell Linux do pendrive. O release-agent do OS ja aceita pacotes assinados com --local-bundle. Ainda falta integrar a entrega Portable oficial e a ativacao no boot. Nenhum arquivo de atualizacao sem consumidor sera gravado na particao de dados.
+
+## Entrega Git offline para USB Owner Dev
+
+`tools/owner_usb_git_delivery.py` prepara um transporte incremental Git
+para a partição **ORDAX-DATA** (exFAT) do USB de desenvolvimento. O script
+somente aceita repositório `ordaxsystems/ordax-os/main` local limpo e
+igual à `main` remota, disco físico USB GPT com ESP/Linux/DATA, volume
+`ORDAX-DATA` e dispositivo diferente do disco do Windows. Sem `--apply`
+faz apenas preflight; com `--apply` copia `ordax-main.bundle` e o
+manifesto SHA-256 para `.ordax/updates/owner-git`, com readback e
+publicação do manifesto por último. Não formata partições, não abre
+`PhysicalDrive`, não altera o kernel e não dispara `ordax-pull`.
+
+No OrdaX OS, o helper proprietário
+`bootstrap/dev-base/ordax-owner-usb-git` já consegue verificar/importar
+esse transporte sem ativá-lo. **O pacote não é assinado**: ele é de uso
+exclusivo Owner Development e não deve autoativar sem comprovação adicional
+da origem e handoff do Supervisor. A reconexão no Creator ainda não chama
+este script automaticamente, e o pendrive físico não é modificado até o
+consumidor estar integrado e validado.
