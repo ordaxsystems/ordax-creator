@@ -320,6 +320,16 @@ def main() -> int:
     p.add_argument("--stage-owner-dev-usb-serial",
                    help="locally authorized serial for non-activating Git transfer")
     args = p.parse_args()
+    # The physical Dev USB cache is independent of the Creator release CDN.
+    # Stage first so a slow Creator manifest lookup never blocks reconnection.
+    usb_failed = False
+    if args.stage_owner_dev_usb_serial and not args.check_only:
+        try:
+            staged = stage_owner_usb_dev(args.stage_owner_dev_usb_serial)
+            print("OWNER_DEV_USB_GIT_STAGE=" + staged, flush=True)
+        except (SyncError, ValueError) as exc:
+            print(f"OWNER_DEV_USB_GIT_STAGE=BLOCKED:{exc}", file=sys.stderr, flush=True)
+            usb_failed = True
     try:
         result = sync(args.install_root, check_only=args.check_only)
     except (SyncError, ValueError, OSError, zipfile.BadZipFile,
@@ -327,14 +337,7 @@ def main() -> int:
         print(f"OWNER_CREATOR_LOCAL_SYNC=BLOCKED:{type(exc).__name__}:{exc}", file=sys.stderr)
         return 1
     print("OWNER_CREATOR_LOCAL_SYNC=" + result)
-    if args.stage_owner_dev_usb_serial and not args.check_only and result != "SKIP_ALREADY_RUNNING":
-        try:
-            staged = stage_owner_usb_dev(args.stage_owner_dev_usb_serial)
-        except (SyncError, ValueError) as exc:
-            print(f"OWNER_DEV_USB_GIT_STAGE=BLOCKED:{exc}", file=sys.stderr)
-            return 1
-        print("OWNER_DEV_USB_GIT_STAGE=" + staged)
-    return 0
+    return 1 if usb_failed else 0
 
 
 if __name__ == "__main__":
