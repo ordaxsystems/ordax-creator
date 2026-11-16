@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -66,6 +67,22 @@ def request_json(url: str, max_bytes: int = 64 << 10) -> dict:
     if not isinstance(value, dict):
         raise SyncError("remote JSON must be an object")
     return value
+
+
+def fresh_manifest_url(nonce: int | None = None) -> str:
+    # Immutable releases are published behind a stable tag URL. GitHub CDNs
+    # can return a previous manifest after --clobber without a cache key.
+    if nonce is None:
+        nonce = time.time_ns()
+    return MANIFEST_URL + "?ordax_nocache=" + str(nonce)
+
+
+def verified_bundle_url(digest: str) -> str:
+    if not HEX64.fullmatch(digest):
+        raise SyncError("untrusted Creator download digest")
+    # Each published ZIP gets a distinct URL cache key even when the release
+    # tag and filename stay fixed. SHA-256/size checks remain authoritative.
+    return BASE + BUNDLE_NAME + "?ordax_sha256=" + digest
 
 
 def validate_manifest(value: dict) -> dict:
@@ -131,7 +148,7 @@ def download_bundle(manifest: dict, cache: Path) -> Path:
     digest = hashlib.sha256()
     size = 0
     try:
-        request = urllib.request.Request(BASE + BUNDLE_NAME, headers={
+        request = urllib.request.Request(verified_bundle_url(expected), headers={
             "User-Agent": "OrdaX-Creator-Owner-Dev-Local-Sync/1"})
         with urllib.request.urlopen(request, timeout=40) as response, part.open("xb") as dst:
             for block in iter(lambda: response.read(1024 * 1024), b""):
@@ -222,7 +239,7 @@ def sync(root: Path, *, check_only: bool = False) -> str:
             recover_interrupted_swap(root)
             current = current_provenance(root)
             try:
-                remote = validate_manifest(request_json(MANIFEST_URL))
+                remote = validate_manifest(request_json(fresh_manifest_url()))
             except urllib.error.HTTPError as exc:
                 if exc.code == 404:
                     return "DEFERRED_NO_PUBLISHED_RELEASE"

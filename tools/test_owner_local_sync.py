@@ -46,6 +46,15 @@ class LocalSyncTests(unittest.TestCase):
             "size": 4096,
         }
 
+    def test_mutable_release_tag_uses_fresh_digest_bound_cache_keys(self):
+        url = SYNC.fresh_manifest_url(12345)
+        self.assertEqual(url, SYNC.MANIFEST_URL + "?ordax_nocache=12345")
+        expected = self.manifest["sha256"]
+        self.assertEqual(SYNC.verified_bundle_url(expected),
+                         SYNC.BASE + SYNC.BUNDLE_NAME + "?ordax_sha256=" + expected)
+        with self.assertRaises(SYNC.SyncError):
+            SYNC.verified_bundle_url("not-a-sha")
+
     def test_manifest_rejects_unsafe_redirect_and_digest(self):
         self.assertIs(SYNC.validate_manifest(self.manifest), self.manifest)
         for key, replacement in [
