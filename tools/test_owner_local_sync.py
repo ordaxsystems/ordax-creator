@@ -73,6 +73,7 @@ class LocalSyncTests(unittest.TestCase):
             ("automatic_in_app_update", True),
             ("sha256", "not-a-digest"),
             ("os_media_payload_sha256", "not-a-digest"),
+            ("os_media_payload_sha256", None),
             ("source_commit", "not-a-commit"),
             ("owner_repository", "ordaxsystems/ordax-os"),
         ]:

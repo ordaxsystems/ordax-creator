@@ -134,8 +134,18 @@ class OwnerReleaseTests(unittest.TestCase):
         valid_media(self.media, verify_gzip=True)
         self.assertFalse(up_to_date(media_manifest, creator_manifest,
                                     self.root, CREATOR_SHA))
-        self.metadata["trust_sha256"] = "0" * 64
+        # Independently prove that changing only trust with original seed
+        # bytes requires republishing, even when the OS revision is equal.
+        original_raw = b"verified-qemu-only-synthetic-seed" * 127
+        original_compressed = gzip.compress(original_raw, mtime=0)
+        (self.media / "ordax-bootstrap-seed.raw.gz").write_bytes(original_compressed)
+        self.metadata.update(seed_sha256=sha(original_raw),
+                             seed_size=len(original_raw),
+                             compressed_seed_sha256=sha(original_compressed),
+                             compressed_seed_size=len(original_compressed),
+                             trust_sha256="0" * 64)
         media_manifest.write_text(json.dumps(self.metadata), encoding="utf-8")
+        valid_media(self.media, verify_gzip=True)
         self.assertFalse(up_to_date(media_manifest, creator_manifest,
                                     self.root, CREATOR_SHA))
 
