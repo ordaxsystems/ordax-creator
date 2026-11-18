@@ -100,6 +100,13 @@ def validate_manifest(value: dict) -> dict:
             or type(value.get("size")) is not int
             or not 0 < value["size"] <= MAX_BUNDLE_BYTES):
         raise SyncError("untrusted Creator bundle integrity descriptor")
+    # Accept previously published v2 manifests, but never a malformed new
+    # producer identity. The archive digest/size remain the installation gate.
+    media_sha = value.get("os_media_payload_sha256")
+    if media_sha is not None and (
+        not isinstance(media_sha, str) or not HEX64.fullmatch(media_sha)
+    ):
+        raise SyncError("untrusted OS media payload identity")
     return value
 
 

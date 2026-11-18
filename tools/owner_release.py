@@ -24,6 +24,23 @@ MEDIA_FILES = {
     "creator-owner-media.json", "ordax-bootstrap-seed.raw.gz",
     "ordax-symbol.png", "ordax-design-theme.json",
 }
+# Fingerprint only bytes embedded into the Owner Creator, not a rerun-only
+# QEMU proof receipt. Exact source SHA by itself does not identify USB media.
+OWNER_MEDIA_PAYLOAD_FIELDS = (
+    "seed_sha256", "compressed_seed_sha256", "symbol_sha256",
+    "theme_sha256", "trust_sha256", "prototype_manifest_sha256",
+)
+
+
+def owner_media_payload_sha256(media: dict) -> str:
+    payload = {key: media.get(key) for key in OWNER_MEDIA_PAYLOAD_FIELDS}
+    if any(not isinstance(value, str) or not SHA256.fullmatch(value)
+           for value in payload.values()):
+        raise ValueError("OS media payload has invalid canonical digest")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
+
+
 BUNDLE = "OrdaX-Creator-Owner-Prototype.zip"
 TAG = "creator-owner-prototype"
 CREATOR_REPO = "ordaxsystems/ordax-creator"
@@ -210,6 +227,7 @@ def package(media: Path, root: Path, bundle: Path, release: Path,
         "version": version,
         "source_commit": m["source_commit"],
         "creator_source_commit": source,
+        "os_media_payload_sha256": owner_media_payload_sha256(m),
         "artifact": BUNDLE,
         "download_url": RELEASE_BASE + BUNDLE,
         "sha256": archive_sha,
@@ -242,7 +260,9 @@ def verify_published(release: Path, remote: Path) -> None:
     if (manifest.get("$schema") != "prototype-ordax.creator-owner-bundle-update/2" or
             manifest.get("owner_repository") != CREATOR_REPO or
             manifest.get("download_url") != RELEASE_BASE + BUNDLE or
-            manifest.get("sha256") != sha or manifest.get("size") != size):
+            manifest.get("sha256") != sha or manifest.get("size") != size or
+            not isinstance(manifest.get("os_media_payload_sha256"), str) or
+            not SHA256.fullmatch(manifest["os_media_payload_sha256"])):
         raise ValueError("published Creator manifest mismatch")
     print("CREATOR_PUBLISHED_READBACK=PASS " + sha)
 
@@ -263,6 +283,9 @@ def up_to_date(media_manifest: Path, existing: Path | None, root: Path, source: 
     return (p.get("$schema") == "prototype-ordax.creator-owner-bundle-update/2"
             and p.get("owner_repository") == CREATOR_REPO
             and p.get("source_commit") == current["source_commit"]
+            # A mutable release tag must be bound to the actual USB image
+            # and trust bytes. A legacy manifest is simply not CURRENT.
+            and p.get("os_media_payload_sha256") == owner_media_payload_sha256(current)
             and p.get("creator_source_commit") == source
             and p.get("version") == canonical_version(root)
             and p.get("download_url") == RELEASE_BASE + BUNDLE
