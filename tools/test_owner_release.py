@@ -7,8 +7,8 @@ import tempfile
 import unittest
 
 from owner_release import (
-    BUNDLE, RELEASE_FILES, digest, package, stage, up_to_date, valid_media,
-    verify_published,
+    BUNDLE, RELEASE_FILES, digest, owner_media_payload_sha256, package,
+    stage, up_to_date, valid_media, verify_published,
 )
 
 CREATOR_SHA = "a" * 40
@@ -81,6 +81,8 @@ class OwnerReleaseTests(unittest.TestCase):
         manifest = json.loads((self.release / "creator-owner-update.json").read_text())
         self.assertEqual(manifest["$schema"], "prototype-ordax.creator-owner-bundle-update/2")
         self.assertEqual(manifest["source_commit"], OS_SHA)
+        self.assertEqual(manifest["os_media_payload_sha256"],
+                         owner_media_payload_sha256(self.metadata))
         self.assertEqual(manifest["creator_source_commit"], CREATOR_SHA)
         self.assertEqual(manifest["owner_repository"], "ordaxsystems/ordax-creator")
         self.assertFalse(manifest["automatic_in_app_update"])
@@ -103,6 +105,56 @@ class OwnerReleaseTests(unittest.TestCase):
         remote = self.path / "release.json"
         remote.write_text(json.dumps(record))
         verify_published(self.release, remote)
+
+    def test_same_commit_media_bytes_change_requires_new_creator_package(self):
+        stage(self.media, self.root, self.bundle, CREATOR_SHA, CREATOR_TREE)
+        (self.bundle / "OrdaX-Creator.exe").write_bytes(b"MZverified-fixture")
+        package(self.media, self.root, self.bundle, self.release,
+                CREATOR_SHA, CREATOR_TREE)
+        media_manifest = self.media / "creator-owner-media.json"
+        creator_manifest = self.release / "creator-owner-update.json"
+        self.assertTrue(up_to_date(media_manifest, creator_manifest,
+                                   self.root, CREATOR_SHA))
+
+        # Changing only a QEMU proof on an identical media payload stays light.
+        self.metadata["qemu_proof_sha256"] = "b" * 64
+        media_manifest.write_text(json.dumps(self.metadata), encoding="utf-8")
+        self.assertTrue(up_to_date(media_manifest, creator_manifest,
+                                   self.root, CREATOR_SHA))
+
+        # Same OS SHA, but a different real compressed USB image and trust:
+        # the old binary embeds older bytes, so the release is not current.
+        raw = b"changed-qemu-accepted-media-payload" * 137
+        compressed = gzip.compress(raw, mtime=0)
+        (self.media / "ordax-bootstrap-seed.raw.gz").write_bytes(compressed)
+        self.metadata.update(seed_sha256=sha(raw), seed_size=len(raw),
+                             compressed_seed_sha256=sha(compressed),
+                             compressed_seed_size=len(compressed))
+        media_manifest.write_text(json.dumps(self.metadata), encoding="utf-8")
+        valid_media(self.media, verify_gzip=True)
+        self.assertFalse(up_to_date(media_manifest, creator_manifest,
+                                    self.root, CREATOR_SHA))
+        # Independently prove that changing only trust with original seed
+        # bytes requires republishing, even when the OS revision is equal.
+        original_raw = b"verified-qemu-only-synthetic-seed" * 127
+        original_compressed = gzip.compress(original_raw, mtime=0)
+        (self.media / "ordax-bootstrap-seed.raw.gz").write_bytes(original_compressed)
+        self.metadata.update(seed_sha256=sha(original_raw),
+                             seed_size=len(original_raw),
+                             compressed_seed_sha256=sha(original_compressed),
+                             compressed_seed_size=len(original_compressed),
+                             trust_sha256="0" * 64)
+        media_manifest.write_text(json.dumps(self.metadata), encoding="utf-8")
+        valid_media(self.media, verify_gzip=True)
+        self.assertFalse(up_to_date(media_manifest, creator_manifest,
+                                    self.root, CREATOR_SHA))
+
+        # Earlier v2 manifests have no media identity and must republish once.
+        legacy = json.loads(creator_manifest.read_text(encoding="utf-8"))
+        legacy.pop("os_media_payload_sha256")
+        creator_manifest.write_text(json.dumps(legacy), encoding="utf-8")
+        self.assertFalse(up_to_date(media_manifest, creator_manifest,
+                                    self.root, CREATOR_SHA))
 
     def test_mismatched_raw_sha_rejected(self):
         self.metadata["seed_sha256"] = "0" * 64
