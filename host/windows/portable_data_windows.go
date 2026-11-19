@@ -8,9 +8,42 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"unsafe"
 )
 
-const portableDataSectorBytes = uint64(512)
+const (
+	portableDataSectorBytes = uint64(512)
+	// winioctl.h: CTL_CODE(IOCTL_DISK_BASE, 0x0050, METHOD_BUFFERED, FILE_ANY_ACCESS).
+	// Windows must re-enumerate its cached GPT after direct PhysicalDrive writes.
+	ioctlDiskUpdateProperties uintptr = 0x00070140
+)
+
+// refreshPortableDiskPartitionView uses the existing identity-verified
+// PhysicalDrive read-only handle to invalidate Windows' cached GPT after the
+// raw bytes have been written and SHA-256 read back. This is Windows' native
+// partition-notification primitive, not another disk writer or formatter.
+func refreshPortableDiskPartitionView(expected Target) error {
+	file, err := openVerifiedPhysicalDriveReadOnly(expected)
+	if err != nil {
+		return fmt.Errorf("open verified PhysicalDrive%d for GPT refresh: %w", expected.DiskNumber, err)
+	}
+	var returned uint32
+	ok, _, ioctlErr := procDeviceIoControl.Call(
+		file.Fd(),
+		ioctlDiskUpdateProperties,
+		0, 0, 0, 0,
+		uintptr(unsafe.Pointer(&returned)),
+		0,
+	)
+	closeErr := file.Close()
+	if ok == 0 {
+		return fmt.Errorf("IOCTL_DISK_UPDATE_PROPERTIES PhysicalDrive%d: %v", expected.DiskNumber, ioctlErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close verified PhysicalDrive%d after GPT refresh: %w", expected.DiskNumber, closeErr)
+	}
+	return nil
+}
 
 // FormatPortableDataVolume runs only after the trusted raw write has completed
 // its byte-for-byte readback proof and the raw-device lease has been released.
@@ -48,6 +81,12 @@ func FormatPortableDataVolume(expected Target, dataStartLBA, dataBytes uint64) e
 	}
 	if serial := strings.TrimSpace(expected.DeviceSerial); serial != "" && strings.TrimSpace(deviceSerial) != serial {
 		return errors.New("portable data formatting blocked: physical device serial changed")
+	}
+	// This runs only after the verified RAW writer has released its physical
+	// device and volume lease. Update the Windows partition manager's view of
+	// the exact same USB before MSFT_Disk/Get-Disk and volume formatting.
+	if err := refreshPortableDiskPartitionView(expected); err != nil {
+		return fmt.Errorf("refresh authorized PhysicalDrive%d GPT after verified write: %w", expected.DiskNumber, err)
 	}
 
 	offsetBytes := dataStartLBA * portableDataSectorBytes
