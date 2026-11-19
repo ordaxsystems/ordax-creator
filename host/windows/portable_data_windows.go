@@ -67,8 +67,29 @@ function Get-OrdaXDataPartition {
     return Get-Partition -DiskNumber $diskNumber -PartitionNumber 3 -ErrorAction Stop
 }
 
-Refresh-OrdaXStorage
-$disk = Get-Disk -Number $diskNumber -ErrorAction Stop
+# The Windows storage provider can temporarily drop MSFT_Disk after a raw
+# GPT rewrite, even though the native PhysicalDrive handle was revalidated
+# immediately above. Rediscover the *same disk number* before touching a
+# volume; a different disk or changed identity must never be substituted.
+function Wait-OrdaXTargetDisk {
+    $deadline = (Get-Date).AddSeconds(60)
+    $lastStorageError = ''
+    do {
+        try {
+            $candidate = Get-Disk -Number $diskNumber -ErrorAction Stop
+            if ($null -ne $candidate) {
+                return $candidate
+            }
+        } catch {
+            $lastStorageError = [string]$_.Exception.Message
+        }
+        Refresh-OrdaXStorage
+        Start-Sleep -Milliseconds 600
+    } while ((Get-Date) -lt $deadline)
+    throw ("Windows did not rediscover PhysicalDrive{0} after the raw write within 60 seconds: {1}" -f $diskNumber, $lastStorageError)
+}
+
+$disk = Wait-OrdaXTargetDisk
 if ([UInt64]$disk.Size -ne $expectedDiskBytes) {
     throw "target disk size changed before ORDAX-DATA format"
 }
