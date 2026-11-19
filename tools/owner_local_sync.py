@@ -219,8 +219,19 @@ def verify_extracted(staging: Path, bundle: Path, manifest: dict, *, smoke: bool
                 raise SyncError("Creator package contains linked or non-file entry")
             path = staging / item.filename
             path.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(item, "r") as src, path.open("xb") as dst:
-                shutil.copyfileobj(src, dst, length=1024 * 1024)
+            # A growing 380 MB PE is repeatedly inspected by Windows storage
+            # filters. Extract it under a non-executable suffix and publish
+            # the complete file in the same directory only after ZIP CRC
+            # validation; never expose a partially extracted .exe.
+            temporary = path.with_name(path.name + ".part") if path.name == "OrdaX-Creator.exe" else path
+            try:
+                with archive.open(item, "r") as src, temporary.open("xb") as dst:
+                    shutil.copyfileobj(src, dst, length=8 * 1024 * 1024)
+                if temporary != path:
+                    temporary.replace(path)
+            finally:
+                if temporary != path:
+                    temporary.unlink(missing_ok=True)
     doc = json.loads((staging / "OrdaX-Creator/provenance.json").read_text(encoding="utf-8"))
     if (doc.get("$schema") != "prototype-ordax.creator-owner-physical/1"
             or doc.get("creator_source_repository") != REPO
