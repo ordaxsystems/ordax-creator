@@ -81,3 +81,34 @@ func TestPortableDataWaitsForSameDiskAfterPhysicalWrite(t *testing.T) {
 		t.Fatal("Windows USB identity verification must follow bounded disk rediscovery")
 	}
 }
+
+func TestPortableDataNotifiesWindowsPartitionManagerAfterVerifiedRawWrite(t *testing.T) {
+	source, err := os.ReadFile("portable_data_windows.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(source)
+	required := []string{
+		"ioctlDiskUpdateProperties uintptr = 0x00070140",
+		"openVerifiedPhysicalDriveReadOnly(expected)",
+		"procDeviceIoControl.Call(",
+		"ioctlDiskUpdateProperties,",
+		"file.Close()",
+		"if err := refreshPortableDiskPartitionView(expected); err != nil {",
+		"$disk = Wait-OrdaXTargetDisk",
+	}
+	for _, fragment := range required {
+		if !strings.Contains(content, fragment) {
+			t.Fatalf("native same-USB GPT re-enumeration lost %q", fragment)
+		}
+	}
+	refresh := strings.Index(content, "if err := refreshPortableDiskPartitionView(expected); err != nil {")
+	powershell := strings.Index(content, "script := fmt.Sprintf(")
+	if refresh < 0 || powershell <= refresh {
+		t.Fatal("verified PhysicalDrive GPT refresh must precede Windows Get-Disk and ORDAX-DATA formatting")
+	}
+	checkSerial := strings.Index(content, "physical device serial changed")
+	if checkSerial < 0 || refresh <= checkSerial {
+		t.Fatal("native GPT refresh must follow the physical USB serial identity check")
+	}
+}
