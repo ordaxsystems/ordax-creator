@@ -51,6 +51,10 @@ func reportRawApplyProgress(report rawApplyProgressReporter, phase string, compl
 	report(rawDiskApplyProgress{Phase: phase, CompletedBytes: completedBytes, TotalBytes: totalBytes})
 }
 
+// A larger sequential block reduces physical USB I/O round trips versus
+// io.Copy's 32 KiB fallback, without changing region coverage or SHA-256 proof.
+const rawPhysicalTransferBufferBytes = 1 << 20
+
 type progressCountWriter struct{ onWrite func(int64) }
 
 func (writer progressCountWriter) Write(data []byte) (int, error) {
@@ -68,6 +72,7 @@ type writtenRegionProof struct {
 func writePreparedRegions(source io.ReaderAt, device rawDiskDevice, plan creatorcore.PhysicalWritePlan, report rawApplyProgressReporter) ([]writtenRegionProof, int64, error) {
 	proofs := make([]writtenRegionProof, 0, len(plan.Regions))
 	var total int64
+	transferBuffer := make([]byte, rawPhysicalTransferBufferBytes)
 	reportRawApplyProgress(report, "writing", 0, plan.BytesToWrite)
 	for _, region := range plan.Regions {
 		if region.OffsetBytes < 0 || region.LengthBytes <= 0 || region.OffsetBytes > int64(plan.TargetBytes)-region.LengthBytes {
@@ -82,7 +87,7 @@ func writePreparedRegions(source io.ReaderAt, device rawDiskDevice, plan creator
 			regionProgress += delta
 			reportRawApplyProgress(report, "writing", regionBase+regionProgress, plan.BytesToWrite)
 		}}
-		written, err := io.Copy(io.MultiWriter(destination, digest, counter), reader)
+		written, err := io.CopyBuffer(io.MultiWriter(destination, digest, counter), reader, transferBuffer)
 		if err != nil {
 			return nil, total + written, fmt.Errorf("write prepared region %q: %w", region.Role, err)
 		}
@@ -101,6 +106,7 @@ func writePreparedRegions(source io.ReaderAt, device rawDiskDevice, plan creator
 
 func verifyPreparedRegions(device rawDiskDevice, proofs []writtenRegionProof, expectedBytes int64, report rawApplyProgressReporter) (int64, error) {
 	var total int64
+	transferBuffer := make([]byte, rawPhysicalTransferBufferBytes)
 	reportRawApplyProgress(report, "verifying", 0, expectedBytes)
 	for _, proof := range proofs {
 		digest := sha256.New()
@@ -111,7 +117,7 @@ func verifyPreparedRegions(device rawDiskDevice, proofs []writtenRegionProof, ex
 			regionProgress += delta
 			reportRawApplyProgress(report, "verifying", regionBase+regionProgress, expectedBytes)
 		}}
-		readBytes, err := io.Copy(io.MultiWriter(digest, counter), reader)
+		readBytes, err := io.CopyBuffer(io.MultiWriter(digest, counter), reader, transferBuffer)
 		if err != nil {
 			return total + readBytes, fmt.Errorf("read back prepared region %q: %w", proof.region.Role, err)
 		}

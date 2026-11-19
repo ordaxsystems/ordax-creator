@@ -1,10 +1,13 @@
 package windowsadapter
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"reflect"
 	"testing"
+
+	creatorcore "github.com/ordaxsystems/ordax-creator/core"
 )
 
 type memoryRawDiskDevice struct {
@@ -302,5 +305,62 @@ func TestApplyRawDiskInternalFailsOnReadBackDigestMismatch(t *testing.T) {
 	}
 	if !device.closed {
 		t.Fatal("device must close after read-back failure")
+	}
+}
+
+type countingPreparedRawDevice struct {
+	*memoryRawDiskDevice
+	writeSizes []int
+	readSizes  []int
+}
+
+func (d *countingPreparedRawDevice) WriteAt(p []byte, off int64) (int, error) {
+	d.writeSizes = append(d.writeSizes, len(p))
+	return d.memoryRawDiskDevice.WriteAt(p, off)
+}
+
+func (d *countingPreparedRawDevice) ReadAt(p []byte, off int64) (int, error) {
+	d.readSizes = append(d.readSizes, len(p))
+	return d.memoryRawDiskDevice.ReadAt(p, off)
+}
+
+func TestPreparedRawRegionsUseMiBTransfersWithFullSHAReadback(t *testing.T) {
+	// The former io.Copy fallback issued approximately one 32 KiB I/O per
+	// block. A 3 MiB + one sector region now requires four bounded calls.
+	payload := bytes.Repeat([]byte{0x6b}, 3*rawPhysicalTransferBufferBytes+512)
+	events := []string{}
+	disk := &countingPreparedRawDevice{
+		memoryRawDiskDevice: &memoryRawDiskDevice{data: make([]byte, len(payload)), events: &events},
+	}
+	plan := creatorcore.PhysicalWritePlan{
+		TargetBytes:  uint64(len(payload)),
+		BytesToWrite: int64(len(payload)),
+		Regions: []creatorcore.PhysicalWriteRegion{
+			{Role: "test-region", OffsetBytes: 0, LengthBytes: int64(len(payload))},
+		},
+	}
+	proofs, written, err := writePreparedRegions(bytes.NewReader(payload), disk, plan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written != int64(len(payload)) || len(proofs) != 1 {
+		t.Fatalf("physical write total/proofs = %d/%d", written, len(proofs))
+	}
+	verified, err := verifyPreparedRegions(disk, proofs, int64(len(payload)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified != int64(len(payload)) || !bytes.Equal(disk.data, payload) {
+		t.Fatal("physical readback does not match the exact prepared bytes")
+	}
+	for _, sizes := range [][]int{disk.writeSizes, disk.readSizes} {
+		if len(sizes) != 4 {
+			t.Fatalf("physical transfer uses %d calls, want 4 for 3 MiB + 512 bytes", len(sizes))
+		}
+		for _, size := range sizes {
+			if size <= 0 || size > rawPhysicalTransferBufferBytes {
+				t.Fatalf("physical I/O block outside 1 MiB bound: %d", size)
+			}
+		}
 	}
 }
