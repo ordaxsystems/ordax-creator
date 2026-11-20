@@ -49,15 +49,9 @@ func verifySignedPortableCandidate(
 func executePhysicalWrite(state appRefreshState, target physicalTarget) error {
 	switch state.PhysicalMode {
 	case "legacy-owner":
-        directory := state.BackendDirectory
-        if _, singleEXE := ownerReadOnlyBackendExecutable(directory); singleEXE {
-            // The isolated helper and media are required only after the
-            // user explicitly chose the destructive installation path.
-            materialized, ok := ownerPrototypeDirectory()
-            if !ok { return errors.New("Owner Creator could not prepare its isolated physical writer") }
-            directory = materialized
-        }
-		return executeLegacyPhysicalWrite(directory, target)
+        directory, err := ownerPhysicalBackendDirectory(state.BackendDirectory)
+        if err != nil { return err }
+        return executeLegacyPhysicalWrite(directory, target)
 	case "portable-public":
 		if state.PortablePayload == nil {
 			return errors.New("o payload Portable assinado não está disponível")

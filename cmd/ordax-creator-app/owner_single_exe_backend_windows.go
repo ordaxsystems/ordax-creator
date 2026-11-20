@@ -325,6 +325,13 @@ func ownerPrototypePhysicalBackend() (string, bool) {
     return filepath.Dir(executable), true
 }
 
+// Only physical media creation materializes the existing isolated helper.
+func ownerPhysicalBackendDirectory(_ string) (string, error) {
+    directory, ok := ownerPrototypeDirectory()
+    if !ok { return "", errors.New("Owner Creator could not prepare its isolated physical writer") }
+    return directory, nil
+}
+
 func ownerReadOnlyBackendExecutable(directory string) (string, bool) {
     exe, err := os.Executable()
     if err != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(filepath.Dir(exe))) {

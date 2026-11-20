@@ -68,6 +68,7 @@ func ownerPrototypeDirectory() (string, bool) {
 // non-symlink files in the exact same directory.
 // The non-standalone Owner bundle retains its packaged physical backend.
 func ownerReadOnlyBackendExecutable(string) (string, bool) { return "", false }
+func ownerPhysicalBackendDirectory(directory string) (string, error) { return directory, nil }
 
 func ownerPrototypePhysicalBackend() (string, bool) {
 	return ownerPrototypeDirectory()
