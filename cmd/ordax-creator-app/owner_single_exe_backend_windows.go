@@ -310,8 +310,32 @@ func ownerPrototypeDirectory() (string, bool) {
 	return ownerRuntimeDir, ownerRuntimeErr == nil && ownerRuntimeDir != ""
 }
 
+// Initial read-only discovery must not copy the 380 MB executable and
+// embedded OS media into Temp. The installed standalone EXE already exposes
+// purpose-bound "targets" and "status" commands. Physical preparation retains
+// the existing isolated helper and seed, materialized only after consent.
 func ownerPrototypePhysicalBackend() (string, bool) {
-	return ownerPrototypeDirectory()
+    if _, err := decodeOwnerProvenance(); err != nil { return "", false }
+    executable, err := os.Executable()
+    if err != nil { return "", false }
+    info, err := os.Lstat(executable)
+    if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+        return "", false
+    }
+    return filepath.Dir(executable), true
+}
+
+func ownerReadOnlyBackendExecutable(directory string) (string, bool) {
+    exe, err := os.Executable()
+    if err != nil || !strings.EqualFold(filepath.Clean(directory), filepath.Clean(filepath.Dir(exe))) {
+        return "", false
+    }
+    info, err := os.Lstat(exe)
+    if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+        return "", false
+    }
+    if _, err := decodeOwnerProvenance(); err != nil { return "", false }
+    return exe, true
 }
 
 func ownerRequireReady() (ownerPrototypeProvenance, error) {

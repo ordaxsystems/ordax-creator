@@ -66,6 +66,9 @@ func ownerPrototypeDirectory() (string, bool) {
 // compiled with the ordax_owner_prototype tag. It never scans arbitrary paths:
 // the executable, raw backend, seed image and provenance must be regular
 // non-symlink files in the exact same directory.
+// The non-standalone Owner bundle retains its packaged physical backend.
+func ownerReadOnlyBackendExecutable(string) (string, bool) { return "", false }
+
 func ownerPrototypePhysicalBackend() (string, bool) {
 	return ownerPrototypeDirectory()
 }

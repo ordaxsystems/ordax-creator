@@ -75,6 +75,23 @@ autorizado e ao bloqueio de instâncias concorrentes.
 Este é um mecanismo local de desenvolvimento; não é assinatura
 Authenticode nem atualização silenciosa do aplicativo público.
 
+### Descoberta rápida no executável Owner único
+
+No Creator Owner Windows compilado como `ordax_single_exe`, a descoberta
+`targets`/`status` agora usa o próprio executável instalado. Iniciar a
+interface **não** extrai/copia outro EXE de centenas de MB nem uma segunda
+imagem de Base para `%TEMP%\OrdaX-Creator`. O binário verifica a
+proveniência incorporada e a identidade do caminho antes de invocar suas
+operações estritamente de leitura.
+
+Somente quando o usuário confirma **Criar OrdaX** é que a mesma
+implementação existente materializa o backend isolado e a seed necessários
+para o preparo físico. A atualização incremental via Git continua no único
+transportador canônico; não requer materializar nem escrever a imagem Base.
+Nenhum segundo atualizador, cache de fonte, writer, serviço ou build do OS foi
+introduzido. O CI Windows prova a variante `ordax_single_exe` com seed
+**sintética**, sem enumerar ou tocar mídia física.
+
 ## Reconexão USB no Creator Windows
 
 Com a interface do Creator aberta, inserção, remoção ou mudança de topologia

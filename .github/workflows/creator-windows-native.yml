@@ -120,6 +120,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Explicit native Win32 control smoke failed' }
           Write-Output 'WIN32_UI_TEST_RUN_ON_WINDOWS=PASS'
           Write-Output 'PHYSICAL_TARGETS_ENUMERATED_BY_CI=NO'
+      - name: Verify standalone Owner fast read-only discovery without OS media
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = 'cmd/ordax-creator-app/owner_payload'
+          if (Test-Path -LiteralPath $payload) { throw 'Untrusted Owner payload already exists' }
+          try {
+            New-Item -ItemType Directory -Path $payload | Out-Null
+            Copy-Item 'cmd/ordax-creator-app/testdata/owner-readonly-synthetic-provenance.json' (Join-Path $payload 'provenance.json')
+            python -c "import gzip,pathlib;pathlib.Path('cmd/ordax-creator-app/owner_payload/ordax-bootstrap-seed.raw.gz').write_bytes(gzip.compress(b'synthetic-not-an-OS-image'))"
+            if ($LASTEXITCODE -ne 0) { throw 'Synthetic standalone fixture creation failed' }
+            go test -count=1 -tags 'ordax_owner_prototype ordax_single_exe ordax_raw_backend' -run '^TestOwnerStandaloneReadOnlyUsesInstalledExeWithoutStaging$' ./cmd/ordax-creator-app
+            if ($LASTEXITCODE -ne 0) { throw 'Standalone Owner read-only startup regression failed' }
+            Write-Output 'OWNER_STANDALONE_READONLY=PASS_WITHOUT_MEDIA_OR_USB'
+          } finally {
+            Remove-Item -LiteralPath $payload -Recurse -Force -ErrorAction SilentlyContinue
+          }
       - name: Invoke only explicitly non-destructive Windows CLI operations
         shell: pwsh
         run: |
