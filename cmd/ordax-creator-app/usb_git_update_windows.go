@@ -29,6 +29,9 @@ type ownerUSBUpdateStatus struct {
 var (
     ownerUSBUpdateMu sync.Mutex
     ownerUSBUpdateResult ownerUSBUpdateStatus
+    ownerUSBProbeMu sync.Mutex
+    ownerUSBProbeRunning bool
+    ownerUSBTrustedCandidate *physicalTarget
 )
 const ownerUSBTaskName = "OrdaX Creator Dev Release Sync"
 
@@ -122,6 +125,80 @@ func ownerUSBTransportFromTask(task ownerUSBTaskInfo, target physicalTarget, exe
     return ownerUSBTransport{Python: task.Executable, Script: script, Repo: osRepo, Serial: serial}, nil
 }
 
+// The USB topology observer only proposes staging for the one USB already
+// authorized in the existing Windows task. It never selects a raw-write target.
+func ownerUSBTrustedTargetFromTask(state appRefreshState, task ownerUSBTaskInfo,
+    executable string) (physicalTarget, bool) {
+    if !state.PhysicalReady || state.Error != "" { return physicalTarget{}, false }
+    var candidate physicalTarget
+    found := false
+    for index := range state.Targets {
+        target, err := ownerUSBSelectedTarget(state, index)
+        if err != nil { continue }
+        if _, err := ownerUSBTransportFromTask(task, target, executable); err != nil { continue }
+        if found { return physicalTarget{}, false } // Ambiguous trusted identity.
+        candidate, found = target, true
+    }
+    return candidate, found
+}
+
+func beginOwnerUSBTrustedProbe(state appRefreshState) {
+    failed, succeeded := physicalWriteTerminalFlags()
+    if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() ||
+        failed || succeeded || !state.PhysicalReady || state.Error != "" ||
+        len(state.Targets) == 0 {
+        return
+    }
+    if _, _, ok := ownerPrototypeBuildInfo(); !ok { return }
+    ownerUSBProbeMu.Lock()
+    if ownerUSBProbeRunning { ownerUSBProbeMu.Unlock(); return }
+    ownerUSBProbeRunning = true
+    ownerUSBProbeMu.Unlock()
+    go func() {
+        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        defer cancel()
+        task, err := ownerUSBTaskConfiguration(ctx)
+        if err != nil { finishOwnerUSBTrustedProbe(nil); return }
+        executable, err := os.Executable()
+        if err != nil { finishOwnerUSBTrustedProbe(nil); return }
+        target, ok := ownerUSBTrustedTargetFromTask(state, task, executable)
+        if !ok { finishOwnerUSBTrustedProbe(nil); return }
+        finishOwnerUSBTrustedProbe(&target)
+    }()
+}
+
+func finishOwnerUSBTrustedProbe(target *physicalTarget) {
+    ownerUSBProbeMu.Lock()
+    ownerUSBProbeRunning = false
+    ownerUSBTrustedCandidate = target
+    ownerUSBProbeMu.Unlock()
+    if target != nil { procPostMessageW.Call(mainWindow, wmAppUSBTrustedReady, 0, 0) }
+}
+
+func renderOwnerUSBTrustedReady() {
+    ownerUSBProbeMu.Lock()
+    candidate := ownerUSBTrustedCandidate
+    ownerUSBTrustedCandidate = nil
+    ownerUSBProbeMu.Unlock()
+    if candidate == nil { return }
+    if refreshInProgress {
+        pendingOwnerUSBStage = true // Retry after the latest topology snapshot.
+        return
+    }
+    if writeInProgress() || ownerUSBUpdateInProgress() { return }
+    failed, succeeded := physicalWriteTerminalFlags()
+    if failed || succeeded { return }
+    stateMu.Lock()
+    state := refreshState
+    stateMu.Unlock()
+    index := restoredUSBSelectionIndex(candidate, state.Targets)
+    if index < 0 || state.Error != "" || !state.PhysicalReady { return }
+    if selected := selectedTargetIndex(); selected >= 0 && selected != index { return }
+    // A prior locally trusted serial is consent for non-destructive Git
+    // transport only. The device is revalidated again inside the writer.
+    startOwnerUSBUpdate(state.Targets[index])
+}
+
 func ownerUSBTaskConfiguration(ctx context.Context) (ownerUSBTaskInfo, error) {
     const ps = "$ErrorActionPreference='Stop';" +
         "$t=Get-ScheduledTask -TaskName 'OrdaX Creator Dev Release Sync' -ErrorAction Stop;" +
@@ -201,8 +278,16 @@ func verifyCanonicalCreatorSource(ctx context.Context, repo string) error {
     branch, err := runGit("branch", "--show-current")
     if err != nil || branch != "main" { return errors.New("Creator source is not on main") }
     head, err := runGit("rev-parse", "HEAD")
-    if err != nil || head != buildCreatorSourceCommit {
-        return errors.New("installed Creator and local implementation revisions differ")
+    if err != nil { return errors.New("canonical Creator HEAD is unavailable") }
+    if head != buildCreatorSourceCommit {
+        // An installed Creator can lag canonical main: a fast-forward must not
+        // disable its USB updater while the verified local scripts advance.
+        if _, err := runGit("cat-file", "-e", buildCreatorSourceCommit+"^{commit}"); err != nil {
+            return errors.New("installed Creator source revision is not available")
+        }
+        if _, err := runGit("merge-base", "--is-ancestor", buildCreatorSourceCommit, head); err != nil {
+            return errors.New("Creator source is not an ancestor of canonical main")
+        }
     }
     dirty, err := runGit("status", "--porcelain=v1")
     if err != nil || dirty != "" { return errors.New("Creator source has unverified local changes") }
@@ -228,9 +313,12 @@ func executeOwnerUSBTransport(target physicalTarget) (ownerUSBReceipt, error) {
     if err := verifyCanonicalCreatorSource(ctx, filepath.Dir(filepath.Dir(transport.Script))); err != nil {
         return ownerUSBReceipt{}, err
     }
-    cmd := exec.CommandContext(ctx, transport.Python, "-u", transport.Script,
-        "--repo", transport.Repo, "--auto-volume",
-        "--trusted-serial", transport.Serial, "--trusted-disk-number", fmt.Sprint(target.DiskNumber), "--apply")
+    // GUI and scheduled task enter the same cached Git-main synchronizer.
+    // The UI stages only: it does not self-update a running EXE or invoke Pull.
+    syncScript := filepath.Join(filepath.Dir(transport.Script), "owner_local_sync.py")
+    cmd := exec.CommandContext(ctx, transport.Python, "-u", syncScript,
+        "--creator-ui-stage", "--stage-owner-dev-usb-serial", transport.Serial,
+        "--trusted-disk-number", fmt.Sprint(target.DiskNumber))
     cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
     // All writes are to ORDAX-DATA through the same canonical writer as the
     // scheduled task. Neither this GUI nor the Python helper activates OS.
@@ -256,7 +344,13 @@ func beginOwnerUSBUpdate() {
         return
     }
     if messageBox(creatorT(msgUSBUpdateConfirm), windowTitle, mbYesNo|mbIconInformation|mbDefButton2) != idYes { return }
+    startOwnerUSBUpdate(target)
+}
 
+// Shared by the explicit button and the trusted hotplug observer. Neither
+// entry point creates an updater or alters the active Linux installation.
+func startOwnerUSBUpdate(target physicalTarget) {
+    if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() { return }
     ownerUSBUpdateMu.Lock()
     ownerUSBUpdateResult = ownerUSBUpdateStatus{Active: true}
     ownerUSBUpdateMu.Unlock()

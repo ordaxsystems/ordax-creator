@@ -447,9 +447,10 @@ def _owner_main_delivery_checkout(os_repo: Path) -> Path:
     return cache
 
 
-def stage_owner_usb_dev(expected_serial: str) -> str:
-    """Reuse existing Owner Git deliverer; no second update service or raw disk API."""
-    if creator_process_active():
+def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
+                        expected_disk_number: int | None = None) -> str | dict:
+    """Reuse the single cached Git deliverer for the task and the Creator GUI."""
+    if not from_creator_ui and creator_process_active():
         return "DEFERRED_CREATOR_RUNNING"
     delivery = Path(__file__).with_name("owner_usb_git_delivery.py")
     os_repo = Path(__file__).resolve().parents[2] / "ordax-os"
@@ -458,6 +459,10 @@ def stage_owner_usb_dev(expected_serial: str) -> str:
     main_repo = _owner_main_delivery_checkout(os_repo)
     command = [sys.executable, str(delivery), "--repo", str(main_repo),
                "--auto-volume", "--trusted-serial", expected_serial, "--apply"]
+    if expected_disk_number is not None:
+        if type(expected_disk_number) is not int or expected_disk_number < 0:
+            raise SyncError("invalid selected USB disk number")
+        command += ["--trusted-disk-number", str(expected_disk_number)]
     try:
         completed = subprocess.run(command, capture_output=True, text=True,
                                    timeout=300, check=False)
@@ -472,6 +477,10 @@ def stage_owner_usb_dev(expected_serial: str) -> str:
     status = receipt.get("status")
     if status not in ("CURRENT", "STAGED_NOT_ACTIVATED", "SKIP_TRUSTED_USB_NOT_PRESENT"):
         raise SyncError("Owner USB Git staging returned unknown status")
+    if from_creator_ui:
+        if status == "SKIP_TRUSTED_USB_NOT_PRESENT":
+            raise SyncError("selected Owner USB disappeared during staging")
+        return receipt
     return status
 
 
@@ -480,9 +489,27 @@ def main() -> int:
     p.add_argument("--install-root", type=Path,
                    default=Path.home() / "Downloads" / "OrdaX-Creator-Owner-Prototype")
     p.add_argument("--check-only", action="store_true")
+    p.add_argument("--creator-ui-stage", action="store_true",
+                   help="stage through the canonical USB transport while Creator UI is open")
+    p.add_argument("--trusted-disk-number", type=int)
     p.add_argument("--stage-owner-dev-usb-serial",
                    help="locally authorized serial for non-activating Git transfer")
     args = p.parse_args()
+    if args.creator_ui_stage:
+        if (args.check_only or not args.stage_owner_dev_usb_serial
+                or args.trusted_disk_number is None or args.trusted_disk_number < 0):
+            print("OWNER_DEV_USB_GIT_STAGE=BLOCKED:missing selected physical USB", file=sys.stderr)
+            return 2
+        try:
+            receipt = stage_owner_usb_dev(
+                args.stage_owner_dev_usb_serial, from_creator_ui=True,
+                expected_disk_number=args.trusted_disk_number,
+            )
+        except (SyncError, ValueError, OSError) as exc:
+            print(f"OWNER_DEV_USB_GIT_STAGE=BLOCKED:{exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(receipt))
+        return 0
     # The physical Dev USB cache is independent of the Creator release CDN.
     # Stage first so a slow Creator manifest lookup never blocks reconnection.
     usb_failed = False

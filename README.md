@@ -84,6 +84,16 @@ também consulta o canal de atualização do próprio Creator. Eventos recebidos
 durante uma descoberta são reconciliados ao terminar; uma gravação ativa ou
 um resultado terminal não é interrompido.
 
+No perfil Owner Dev, ao abrir o Creator com o USB conectado ou receber um
+evento de inserção, a descoberta já existente também consulta **em segundo
+plano** a identidade autorizada na tarefa Windows canônica. Somente quando
+existe **um único** USB físico correspondente ao serial autorizado, sem
+escrita física/atualização concorrente nem seleção explícita de outro disco,
+a interface inicia a preparação incremental pelo mesmo sincronizador do
+botão e da tarefa. USB desconhecido ou ambíguo nunca é atualizado
+silenciosamente. O evento não seleciona um disco para a ação destrutiva
+**Criar OrdaX**, não formata, não grava a ESP e não ativa o Linux no Windows.
+
 **Limite atual:** detectar o USB **não é** autorização para formatá-lo.
 O fluxo físico existente exige seleção, pré-validação, UAC e readback. O
 `ordax-pull` pertence ao OS em execução; o Windows não executa diretamente
@@ -147,10 +157,17 @@ localmente configurado, instância única e checkout canônico de desenvolviment
 O aplicativo confere também o número do disco selecionado; não aceita uma
 segunda unidade com o mesmo rótulo e não escolhe automaticamente um destino.
 
-A interface chama o mesmo `tools/owner_usb_git_delivery.py` que a tarefa
-Windows utiliza. Ambas as entradas usam um bloqueio de arquivo do próprio
-Windows, com exclusão mútua, e retornam recibos `CURRENT` ou
-`STAGED_NOT_ACTIVATED`. O único escritor valida o GitHub `main`, GPT,
+A interface entra no **mesmo sincronizador** `tools/owner_local_sync.py`
+com `--creator-ui-stage`. Esse modo reutiliza o cache exato da `main` e
+somente chama o transportador `tools/owner_usb_git_delivery.py`, sem tentar
+substituir o executável aberto. A tarefa agendada mantém seu comportamento
+de sincronizar o Creator quando ele estiver fechado; o modo de interface
+não cria serviço, segundo updater, segundo cache ou tarefa paralela.
+Ambas as entradas usam o mesmo bloqueio do Windows, com exclusão mútua, e
+retornam recibos `CURRENT` ou `STAGED_NOT_ACTIVATED`. A interface aceita um
+Creator cuja revisão esteja comprovadamente na ancestralidade da `main`
+atual, sem exigir que o EXE já incorpore toda alteração posterior do Git;
+a implementação local permanece limpa e exatamente igual à `main` remota. O único escritor valida o GitHub `main`, GPT,
 serial, volume, SHA-256 e readback antes de publicar o manifesto. A interface
 não executa `ordax-pull`, não abre `PhysicalDrive` nem escreve na ESP/ext4.
 
