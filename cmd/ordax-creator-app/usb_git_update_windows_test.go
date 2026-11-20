@@ -87,6 +87,47 @@ func TestOwnerUSBTaskReusesCanonicalInstalledTransport(t *testing.T) {
     }
 }
 
+func TestOwnerUSBTrustedHotplugRequiresUniqueAuthorizedSerial(t *testing.T) {
+    home := t.TempDir()
+    creatorRepo := filepath.Join(home, "GitHub", "ordax-creator")
+    osRepo := filepath.Join(home, "GitHub", "ordax-os")
+    tools := filepath.Join(creatorRepo, "tools")
+    if err := os.MkdirAll(tools, 0700); err != nil { t.Fatal(err) }
+    if err := os.MkdirAll(filepath.Join(osRepo, ".git"), 0700); err != nil { t.Fatal(err) }
+    python := filepath.Join(home, "python.exe")
+    script := filepath.Join(tools, "owner_local_sync.py")
+    deliver := filepath.Join(tools, "owner_usb_git_delivery.py")
+    for _, path := range []string{python, script, deliver} {
+        if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil { t.Fatal(err) }
+    }
+    install := filepath.Join(home, "install", "OrdaX-Creator-Owner-Prototype")
+    executable := filepath.Join(install, "current", "OrdaX-Creator", "OrdaX-Creator.exe")
+    task := ownerUSBTaskInfo{
+        Executable: python,
+        Arguments: "\"" + script + "\" --install-root \"" + install +
+            "\" --stage-owner-dev-usb-serial 6699E36B",
+        State: "Ready", Concurrency: "IgnoreNew",
+    }
+    state := appRefreshState{PhysicalReady: true, Targets: []physicalTarget{testOwnerUSBTarget()}}
+    target, ok := ownerUSBTrustedTargetFromTask(state, task, executable)
+    if !ok || target.DeviceSerial != "6699E36B" {
+        t.Fatalf("previously authorized Owner USB not found: %+v %v", target, ok)
+    }
+    state.Targets = append(state.Targets, testOwnerUSBTarget())
+    if _, ok := ownerUSBTrustedTargetFromTask(state, task, executable); ok {
+        t.Fatal("ambiguous physical USB was auto-staged")
+    }
+    state.Targets = state.Targets[:1]
+    task.Arguments = strings.Replace(task.Arguments, "6699E36B", "UNTRUSTED", 1)
+    if _, ok := ownerUSBTrustedTargetFromTask(state, task, executable); ok {
+        t.Fatal("USB without previous local serial authorization was auto-staged")
+    }
+    state.PhysicalReady = false
+    if _, ok := ownerUSBTrustedTargetFromTask(state, task, executable); ok {
+        t.Fatal("unready physical device backend authorized hotplug staging")
+    }
+}
+
 func TestOwnerUSBUpdateAcceptsOnlyVerifiedStagingReceipts(t *testing.T) {
     commit := strings.Repeat("a", 40)
     for _, status := range []string{"CURRENT", "STAGED_NOT_ACTIVATED"} {

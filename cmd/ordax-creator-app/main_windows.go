@@ -33,6 +33,7 @@ const (
 	wmAppWriteDone     = wmApp + 3
 	wmAppUpdateDone    = wmApp + 4
 	wmAppUSBUpdateDone = wmApp + 5
+	wmAppUSBTrustedReady = wmApp + 6
 
 	wsOverlappedWindow = 0x00CF0000
 	wsVisible          = 0x10000000
@@ -598,6 +599,11 @@ func renderRefresh() {
 	if pendingUSBRefresh && !writeInProgress() {
 		pendingUSBRefresh = false
 		beginRefresh() // Coalesce hotplug events arriving during a discovery.
+		return
+	}
+	if pendingOwnerUSBStage {
+		pendingOwnerUSBStage = false
+		beginOwnerUSBTrustedProbe(state)
 	}
 }
 
@@ -772,6 +778,9 @@ func wndProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 	case wmAppUSBUpdateDone:
 		renderOwnerUSBUpdateDone()
 		return 0
+	case wmAppUSBTrustedReady:
+		renderOwnerUSBTrustedReady()
+		return 0
 	case wmAppUpdateDone:
 		renderUpdateDone()
 		return 0
@@ -853,6 +862,7 @@ func createMainWindow(startServices bool) {
 	// discovery, downloads, update checks, elevation or any physical I/O.
 	if startServices {
 		creatorServicesStarted = true
+		pendingOwnerUSBStage = true // Trusted USB already connected at launch.
 		procShowWindow.Call(mainWindow, swShow)
 		procUpdateWindow.Call(mainWindow)
 		beginRefresh()

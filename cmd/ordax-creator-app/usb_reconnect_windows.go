@@ -16,6 +16,7 @@ const (
 // selects a drive or starts a physical write.
 var (
     pendingUSBRefresh bool
+    pendingOwnerUSBStage bool
     creatorServicesStarted bool
 )
 
@@ -36,6 +37,7 @@ func reconcileUSBDeviceChange(event uintptr) {
     if failed || succeeded {
         return
     }
+    if event == dbtDeviceArrival { pendingOwnerUSBStage = true }
     if refreshInProgress {
         pendingUSBRefresh = true
         return

@@ -29,6 +29,9 @@ type ownerUSBUpdateStatus struct {
 var (
     ownerUSBUpdateMu sync.Mutex
     ownerUSBUpdateResult ownerUSBUpdateStatus
+    ownerUSBProbeMu sync.Mutex
+    ownerUSBProbeRunning bool
+    ownerUSBTrustedCandidate *physicalTarget
 )
 const ownerUSBTaskName = "OrdaX Creator Dev Release Sync"
 
@@ -120,6 +123,80 @@ func ownerUSBTransportFromTask(task ownerUSBTaskInfo, target physicalTarget, exe
         return ownerUSBTransport{}, errors.New("canonical OS Git checkout is not available")
     }
     return ownerUSBTransport{Python: task.Executable, Script: script, Repo: osRepo, Serial: serial}, nil
+}
+
+// The USB topology observer only proposes staging for the one USB already
+// authorized in the existing Windows task. It never selects a raw-write target.
+func ownerUSBTrustedTargetFromTask(state appRefreshState, task ownerUSBTaskInfo,
+    executable string) (physicalTarget, bool) {
+    if !state.PhysicalReady || state.Error != "" { return physicalTarget{}, false }
+    var candidate physicalTarget
+    found := false
+    for index := range state.Targets {
+        target, err := ownerUSBSelectedTarget(state, index)
+        if err != nil { continue }
+        if _, err := ownerUSBTransportFromTask(task, target, executable); err != nil { continue }
+        if found { return physicalTarget{}, false } // Ambiguous trusted identity.
+        candidate, found = target, true
+    }
+    return candidate, found
+}
+
+func beginOwnerUSBTrustedProbe(state appRefreshState) {
+    failed, succeeded := physicalWriteTerminalFlags()
+    if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() ||
+        failed || succeeded || !state.PhysicalReady || state.Error != "" ||
+        len(state.Targets) == 0 {
+        return
+    }
+    if _, _, ok := ownerPrototypeBuildInfo(); !ok { return }
+    ownerUSBProbeMu.Lock()
+    if ownerUSBProbeRunning { ownerUSBProbeMu.Unlock(); return }
+    ownerUSBProbeRunning = true
+    ownerUSBProbeMu.Unlock()
+    go func() {
+        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        defer cancel()
+        task, err := ownerUSBTaskConfiguration(ctx)
+        if err != nil { finishOwnerUSBTrustedProbe(nil); return }
+        executable, err := os.Executable()
+        if err != nil { finishOwnerUSBTrustedProbe(nil); return }
+        target, ok := ownerUSBTrustedTargetFromTask(state, task, executable)
+        if !ok { finishOwnerUSBTrustedProbe(nil); return }
+        finishOwnerUSBTrustedProbe(&target)
+    }()
+}
+
+func finishOwnerUSBTrustedProbe(target *physicalTarget) {
+    ownerUSBProbeMu.Lock()
+    ownerUSBProbeRunning = false
+    ownerUSBTrustedCandidate = target
+    ownerUSBProbeMu.Unlock()
+    if target != nil { procPostMessageW.Call(mainWindow, wmAppUSBTrustedReady, 0, 0) }
+}
+
+func renderOwnerUSBTrustedReady() {
+    ownerUSBProbeMu.Lock()
+    candidate := ownerUSBTrustedCandidate
+    ownerUSBTrustedCandidate = nil
+    ownerUSBProbeMu.Unlock()
+    if candidate == nil { return }
+    if refreshInProgress {
+        pendingOwnerUSBStage = true // Retry after the latest topology snapshot.
+        return
+    }
+    if writeInProgress() || ownerUSBUpdateInProgress() { return }
+    failed, succeeded := physicalWriteTerminalFlags()
+    if failed || succeeded { return }
+    stateMu.Lock()
+    state := refreshState
+    stateMu.Unlock()
+    index := restoredUSBSelectionIndex(candidate, state.Targets)
+    if index < 0 || state.Error != "" || !state.PhysicalReady { return }
+    if selected := selectedTargetIndex(); selected >= 0 && selected != index { return }
+    // A prior locally trusted serial is consent for non-destructive Git
+    // transport only. The device is revalidated again inside the writer.
+    startOwnerUSBUpdate(state.Targets[index])
 }
 
 func ownerUSBTaskConfiguration(ctx context.Context) (ownerUSBTaskInfo, error) {
@@ -267,7 +344,13 @@ func beginOwnerUSBUpdate() {
         return
     }
     if messageBox(creatorT(msgUSBUpdateConfirm), windowTitle, mbYesNo|mbIconInformation|mbDefButton2) != idYes { return }
+    startOwnerUSBUpdate(target)
+}
 
+// Shared by the explicit button and the trusted hotplug observer. Neither
+// entry point creates an updater or alters the active Linux installation.
+func startOwnerUSBUpdate(target physicalTarget) {
+    if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() { return }
     ownerUSBUpdateMu.Lock()
     ownerUSBUpdateResult = ownerUSBUpdateStatus{Active: true}
     ownerUSBUpdateMu.Unlock()

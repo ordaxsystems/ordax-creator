@@ -84,6 +84,16 @@ também consulta o canal de atualização do próprio Creator. Eventos recebidos
 durante uma descoberta são reconciliados ao terminar; uma gravação ativa ou
 um resultado terminal não é interrompido.
 
+No perfil Owner Dev, ao abrir o Creator com o USB conectado ou receber um
+evento de inserção, a descoberta já existente também consulta **em segundo
+plano** a identidade autorizada na tarefa Windows canônica. Somente quando
+existe **um único** USB físico correspondente ao serial autorizado, sem
+escrita física/atualização concorrente nem seleção explícita de outro disco,
+a interface inicia a preparação incremental pelo mesmo sincronizador do
+botão e da tarefa. USB desconhecido ou ambíguo nunca é atualizado
+silenciosamente. O evento não seleciona um disco para a ação destrutiva
+**Criar OrdaX**, não formata, não grava a ESP e não ativa o Linux no Windows.
+
 **Limite atual:** detectar o USB **não é** autorização para formatá-lo.
 O fluxo físico existente exige seleção, pré-validação, UAC e readback. O
 `ordax-pull` pertence ao OS em execução; o Windows não executa diretamente
