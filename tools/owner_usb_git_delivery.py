@@ -122,7 +122,7 @@ def existing_current(target: Path, commit: str) -> bool:
 
 
 def build_bundle(repo: Path, destination: Path, commit: str) -> tuple[str, int]:
-    git(repo, "bundle", "create", str(destination), "main", timeout=180)
+    git(repo, "-c", "pack.window=0", "-c", "pack.depth=0", "-c", "pack.compression=1", "bundle", "create", str(destination), "main", timeout=180)
     heads = git(repo, "bundle", "list-heads", str(destination))
     if heads != commit + " refs/heads/main":
         raise DeliveryError("bundle is not bound to one exact main revision")

@@ -388,6 +388,65 @@ def sync(root: Path, *, check_only: bool = False) -> str:
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+def _owner_main_delivery_checkout(os_repo: Path) -> Path:
+    """Prepare one cached exact-main checkout without changing active work."""
+    canonical = "https://github.com/ordaxsystems/ordax-os.git"
+    root = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "OrdaX-Creator"
+    cache = root / "owner-main-delivery"
+
+    def run_git(*args: str, timeout: int = 150) -> str:
+        try:
+            completed = subprocess.run(
+                ["git", *args], capture_output=True, text=True,
+                timeout=timeout, check=True,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise SyncError("canonical Owner Git main cache could not be updated") from exc
+        return completed.stdout.strip()
+
+    if os_repo.is_symlink() or not (os_repo / ".git").is_dir():
+        raise SyncError("canonical OS source checkout is unavailable")
+    if run_git("-C", str(os_repo), "remote", "get-url", "origin") != canonical:
+        raise SyncError("OS source origin is not canonical")
+    if cache.is_symlink() or (hasattr(cache, "is_junction") and cache.is_junction()):
+        raise SyncError("Owner main cache path is unsafe")
+
+    if not cache.exists():
+        root.mkdir(parents=True, exist_ok=True)
+        pending = root / ("owner-main-delivery.pending-" + str(os.getpid()))
+        if pending.exists():
+            raise SyncError("Owner main cache creation is already pending")
+        try:
+            run_git("clone", "--shared", "--no-checkout", str(os_repo), str(pending))
+            run_git("-C", str(pending), "remote", "set-url", "origin", canonical)
+            run_git("-C", str(pending), "sparse-checkout", "init", "--cone")
+            run_git("-C", str(pending), "sparse-checkout", "set", "bootstrap/dev-base")
+            pending.rename(cache)
+        finally:
+            if pending.exists():
+                shutil.rmtree(pending)
+
+    if not (cache / ".git").is_dir() or (cache / ".git").is_symlink():
+        raise SyncError("Owner main cache is not a standalone Git checkout")
+    if run_git("-C", str(cache), "remote", "get-url", "origin") != canonical:
+        raise SyncError("Owner main cache origin differs from canonical OS")
+    if run_git("-C", str(cache), "status", "--porcelain=v1"):
+        raise SyncError("Owner main cache contains uncommitted changes")
+
+    previous_branch = run_git("-C", str(cache), "branch", "--show-current")
+    previous_head = run_git("-C", str(cache), "rev-parse", "HEAD")
+    run_git("-C", str(cache), "fetch", "--no-tags", "origin", "main")
+    candidate = run_git("-C", str(cache), "rev-parse", "FETCH_HEAD")
+    if previous_branch == "main" and previous_head != candidate:
+        run_git("-C", str(cache), "merge-base", "--is-ancestor",
+                previous_head, candidate)
+    if previous_branch != "main" or previous_head != candidate:
+        run_git("-C", str(cache), "switch", "-C", "main", candidate)
+    if run_git("-C", str(cache), "status", "--porcelain=v1"):
+        raise SyncError("Owner main cache checkout did not settle cleanly")
+    return cache
+
+
 def stage_owner_usb_dev(expected_serial: str) -> str:
     """Reuse existing Owner Git deliverer; no second update service or raw disk API."""
     if creator_process_active():
@@ -396,7 +455,8 @@ def stage_owner_usb_dev(expected_serial: str) -> str:
     os_repo = Path(__file__).resolve().parents[2] / "ordax-os"
     if not delivery.is_file() or not (os_repo / ".git").is_dir():
         raise SyncError("canonical Owner Git deliverer or OS checkout unavailable")
-    command = [sys.executable, str(delivery), "--repo", str(os_repo),
+    main_repo = _owner_main_delivery_checkout(os_repo)
+    command = [sys.executable, str(delivery), "--repo", str(main_repo),
                "--auto-volume", "--trusted-serial", expected_serial, "--apply"]
     try:
         completed = subprocess.run(command, capture_output=True, text=True,
