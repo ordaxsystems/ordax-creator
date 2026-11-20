@@ -49,7 +49,9 @@ func verifySignedPortableCandidate(
 func executePhysicalWrite(state appRefreshState, target physicalTarget) error {
 	switch state.PhysicalMode {
 	case "legacy-owner":
-		return executeLegacyPhysicalWrite(state.BackendDirectory, target)
+        directory, err := ownerPhysicalBackendDirectory(state.BackendDirectory)
+        if err != nil { return err }
+        return executeLegacyPhysicalWrite(directory, target)
 	case "portable-public":
 		if state.PortablePayload == nil {
 			return errors.New("o payload Portable assinado não está disponível")

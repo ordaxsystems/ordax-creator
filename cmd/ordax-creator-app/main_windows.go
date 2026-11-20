@@ -376,6 +376,9 @@ func runBackendHidden(directory string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("Creator backend operation is not allowed in the unelevated UI")
 	}
 	exe := filepath.Join(directory, "ordax-creator-physical-test.exe")
+	if direct, ok := ownerReadOnlyBackendExecutable(directory); ok {
+		exe = direct // Same verified Owner EXE; no 700 MB Temp duplication on discovery.
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), backendOperationTimeout(operation))
 	defer cancel()
 
