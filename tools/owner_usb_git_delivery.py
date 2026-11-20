@@ -134,37 +134,131 @@ def build_bundle(repo: Path, destination: Path, commit: str) -> tuple[str, int]:
 
 
 def checked_volume(letter: str) -> dict:
+    """Verify the exact Owner USB through read-only native Windows disk APIs.
+
+    Storage CIM Get-Partition/Get-Disk may block on removable disks. The
+    kernel layout and volume extents are authoritative and require no UAC.
+    """
     if not re.fullmatch(r"[A-Z]", letter):
         raise DeliveryError("USB destination requires one drive letter")
-    powershell = """
-$ErrorActionPreference = 'Stop'
-$p=Get-Partition -DriveLetter '{letter}'
-$d=Get-Disk -Number $p.DiskNumber
-$v=Get-Volume -DriveLetter '{letter}'
-$s=Get-Partition -DriveLetter ($env:SystemDrive.Substring(0,1))
-$types=@(Get-Partition -DiskNumber $d.Number | ForEach-Object {{ $_.GptType.ToString().Trim('{{}}').ToLowerInvariant() }})
-[pscustomobject]@{{ disk=$d.Number; serial=$d.SerialNumber; bus=$d.BusType.ToString();
-  style=$d.PartitionStyle.ToString(); label=$v.FileSystemLabel; fs=$v.FileSystem;
-  systemDisk=$s.DiskNumber; partition=$p.PartitionNumber; types=$types }} | ConvertTo-Json -Compress
-""".format(letter=letter)
+    if os.name != "nt":
+        raise DeliveryError("Owner USB detection requires Windows")
+    import struct
+    import uuid
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [
+        ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+        ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+    ]
+    kernel.CreateFileW.restype = ctypes.c_void_p
+    kernel.DeviceIoControl.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_void_p,
+    ]
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+
+    def read_ioctl(path: str, command: int, payload: bytes = b"") -> bytes:
+        handle = kernel.CreateFileW(path, 0, 3, None, 3, 0, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise OSError(ctypes.get_last_error(), "disk metadata inaccessible")
+        try:
+            output = ctypes.create_string_buffer(8192)
+            used = ctypes.c_uint32()
+            request = ctypes.create_string_buffer(payload) if payload else None
+            if not kernel.DeviceIoControl(
+                ctypes.c_void_p(handle), command, request, len(payload),
+                output, len(output), ctypes.byref(used), None,
+            ):
+                raise OSError(ctypes.get_last_error(), "disk metadata query failed")
+            return output.raw[:used.value]
+        finally:
+            kernel.CloseHandle(ctypes.c_void_p(handle))
+
+    def extent(drive: str) -> tuple[int, int, int]:
+        raw = read_ioctl(rf"\\.\{drive}:", 0x560000)
+        if len(raw) < 32 or struct.unpack_from("<I", raw)[0] != 1:
+            raise DeliveryError("USB data volume requires one physical disk extent")
+        return struct.unpack_from("<I4xqq", raw, 8)
+
     try:
-        raw = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", powershell],
-                             text=True, capture_output=True, timeout=25, check=True).stdout
-        value = json.loads(raw)
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, ValueError) as exc:
+        label = ctypes.create_unicode_buffer(256)
+        fs = ctypes.create_unicode_buffer(256)
+        serial = ctypes.c_uint32()
+        maximum = ctypes.c_uint32()
+        flags = ctypes.c_uint32()
+        if not kernel.GetVolumeInformationW(
+            letter + ":\\", label, len(label), ctypes.byref(serial),
+            ctypes.byref(maximum), ctypes.byref(flags), fs, len(fs),
+        ):
+            raise OSError(ctypes.get_last_error(), "USB volume unreadable")
+        disk, start, size = extent(letter)
+        system_drive = (os.environ.get("SystemDrive") or "C:")[0].upper()
+        system_disk, _, _ = extent(system_drive)
+        layout = read_ioctl(rf"\\.\PhysicalDrive{disk}", 0x70050)
+        if len(layout) < 48:
+            raise DeliveryError("USB GPT layout missing")
+        style, count = struct.unpack_from("<II", layout)
+        if style != 1 or count != 3 or len(layout) < 48 + 144 * count:
+            raise DeliveryError("USB does not contain the canonical GPT layout")
+        parts = []
+        for index in range(count):
+            offset = 48 + 144 * index
+            partition_style, first, length, number = struct.unpack_from(
+                "<I4xqqI", layout, offset,
+            )
+            guid = str(uuid.UUID(bytes_le=layout[offset + 32:offset + 48]))
+            if partition_style != 1 or number != index + 1 or first < 0 or length <= 0:
+                raise DeliveryError("USB GPT partition metadata invalid")
+            parts.append((number, first, length, guid))
+
+        # STORAGE_DEVICE_DESCRIPTOR: get the physical USB serial and bus
+        # from IOCTL_STORAGE_QUERY_PROPERTY (12-byte aligned query).
+        descriptor = read_ioctl(
+            rf"\\.\PhysicalDrive{disk}", 0x2d1400,
+            struct.pack("<III", 0, 0, 0),
+        )
+        if len(descriptor) < 36:
+            raise DeliveryError("USB storage descriptor missing")
+        serial_offset = struct.unpack_from("<I", descriptor, 24)[0]
+        bus_type = struct.unpack_from("<I", descriptor, 28)[0]
+        if not 36 <= serial_offset < len(descriptor):
+            raise DeliveryError("USB device serial is absent")
+        physical_serial = descriptor[serial_offset:].split(b"\0", 1)[0].decode(
+            "ascii", "strict",
+        ).strip()
+        device = {
+            "Index": disk,
+            "InterfaceType": "USB" if bus_type == 7 else "OTHER",
+            "SerialNumber": physical_serial,
+        }
+    except (OSError, ValueError, TypeError, IndexError, struct.error) as exc:
         raise DeliveryError("physical USB identity could not be verified") from exc
+
     required = {
         "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
         "0fc63daf-8483-4772-8e79-3d69d8477de4",
         "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7",
     }
-    if (value.get("bus") != "USB" or value.get("style") != "GPT" or
-        value.get("fs") != "exFAT" or value.get("label") != "ORDAX-DATA" or
-        value.get("disk") == value.get("systemDisk") or
-        not str(value.get("serial", "")).strip() or
-        not required.issubset(set(value.get("types", [])))):
+    types = [part[3] for part in parts]
+    if (
+        {part[3] for part in parts} != required
+        or parts[2][:3] != (3, start, size)
+        or parts[2][3] != "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"
+        or disk == system_disk
+        or not isinstance(device, dict)
+        or device.get("Index") != disk
+        or device.get("InterfaceType") != "USB"
+        or not str(device.get("SerialNumber") or "").strip()
+        or label.value != "ORDAX-DATA" or fs.value != "exFAT"
+    ):
         raise DeliveryError("target is not an authorized OrdaX development USB data volume")
-    return value
+    return {
+        "disk": disk, "serial": str(device["SerialNumber"]).strip(),
+        "bus": "USB", "style": "GPT", "label": label.value, "fs": fs.value,
+        "systemDisk": system_disk, "partition": 3, "types": types,
+    }
 
 
 def enforce_selected_disk(identity: dict, expected: int | None) -> None:
