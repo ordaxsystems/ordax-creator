@@ -211,6 +211,40 @@ class LocalSyncTests(unittest.TestCase):
             self.assertEqual(SYNC.source_relation("ordax-os", "a"*40, "b"*40), 1)
             remote.assert_called_once()
 
+    def test_creator_gui_reuses_single_usb_transport_without_app_replacement(self):
+        receipt = {"status": "CURRENT", "source_commit": "a" * 40}
+        with (
+            mock.patch.object(SYNC.sys, "argv", [
+                "owner_local_sync.py", "--creator-ui-stage",
+                "--stage-owner-dev-usb-serial", "6699E36B",
+                "--trusted-disk-number", "1",
+            ]),
+            mock.patch.object(SYNC, "stage_owner_usb_dev", return_value=receipt) as stage,
+            mock.patch.object(SYNC, "sync") as update_app,
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            self.assertEqual(SYNC.main(), 0)
+        stage.assert_called_once_with(
+            "6699E36B", from_creator_ui=True, expected_disk_number=1,
+        )
+        update_app.assert_not_called()
+        self.assertEqual(json.loads(stdout.getvalue()), receipt)
+
+    def test_creator_gui_rejects_missing_disk_without_staging(self):
+        with (
+            mock.patch.object(SYNC.sys, "argv", [
+                "owner_local_sync.py", "--creator-ui-stage",
+                "--stage-owner-dev-usb-serial", "6699E36B",
+            ]),
+            mock.patch.object(SYNC, "stage_owner_usb_dev") as stage,
+            mock.patch.object(SYNC, "sync") as update_app,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            self.assertEqual(SYNC.main(), 2)
+        stage.assert_not_called()
+        update_app.assert_not_called()
+        self.assertIn("missing selected physical USB", stderr.getvalue())
+
     def test_trusted_usb_staging_defers_during_creator_physical_session(self):
         with mock.patch.object(SYNC, "creator_process_active", return_value=True):
             self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
