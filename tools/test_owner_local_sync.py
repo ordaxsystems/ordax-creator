@@ -120,8 +120,21 @@ class LocalSyncTests(unittest.TestCase):
             for name, data in contents.items():
                 z.writestr(name, data)
         stage = self.root / "stage"
-        SYNC.verify_extracted(stage, archive, self.manifest, smoke=False)
+        observed = []
+        actual_copy = SYNC.shutil.copyfileobj
+        def capture_copy(source, destination, length):
+            observed.append((Path(destination.name).name, length))
+            return actual_copy(source, destination, length=length)
+        with mock.patch.object(SYNC.shutil, "copyfileobj", side_effect=capture_copy):
+            SYNC.verify_extracted(stage, archive, self.manifest, smoke=False)
         self.assertTrue((stage / "OrdaX-Creator/OrdaX-Creator.exe").is_file())
+        self.assertIn(("OrdaX-Creator.exe.part", 8 * 1024 * 1024), observed)
+        self.assertFalse((stage / "OrdaX-Creator/OrdaX-Creator.exe.part").exists())
+        with mock.patch.object(SYNC.shutil, "copyfileobj",
+                               side_effect=OSError("interrupted archive extraction")):
+            with self.assertRaisesRegex(OSError, "interrupted archive"):
+                SYNC.verify_extracted(self.root / "interrupted-stage", archive, self.manifest, smoke=False)
+        self.assertFalse((self.root / "interrupted-stage/OrdaX-Creator/OrdaX-Creator.exe.part").exists())
         with zipfile.ZipFile(archive, "a") as z:
             z.writestr("../evil.txt", b"unsafe")
         with self.assertRaisesRegex(SYNC.SyncError, "unexpected files"):
