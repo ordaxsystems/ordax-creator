@@ -589,7 +589,7 @@ def inspect_canonical_dev_base(repo: Path, source_commit_sha: str) -> dict:
             for relative in required:
                 fetched = subprocess.run(
                     [git_bin, "-C", str(repo), "show", "HEAD:" + relative],
-                    capture_output=True, timeout=20, check=True,
+                    capture_output=True, timeout=8, check=True,
                     env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
                 ).stdout
                 if not fetched or len(fetched) > (256 << 10):
@@ -605,7 +605,7 @@ def inspect_canonical_dev_base(repo: Path, source_commit_sha: str) -> dict:
                     "--compatible-worktree", str(repo),
                     "--resolve-only", "--git-bin", git_bin, "--awk-bin", awk_bin,
                 ],
-                capture_output=True, timeout=90, check=False,
+                capture_output=True, timeout=15, check=False,
                 env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
             if result.returncode != 0 or not 0 < len(result.stdout) <= 2048:

@@ -186,7 +186,8 @@ func TestOwnerUSBComponentSummaryDoesNotClaimExecutableInstallation(t *testing.T
         Result: "CURRENT", SourceCommit: strings.Repeat("a", 40),
         BaseStatus: "AVAILABLE_NOT_STAGED", BaseArtifactCommit: strings.Repeat("c", 40),
     })
-    if !strings.Contains(view, "cccccccccccc") || !strings.Contains(view, "Base") {
+    if !strings.Contains(view, "cccccccccccc") || !strings.Contains(view, "Base") ||
+        !strings.Contains(view, "não transferida") {
         t.Fatalf("available-only Base evidence is missing: %q", view)
     }
     for _, input := range []ownerUSBUpdateStatus{
@@ -196,6 +197,18 @@ func TestOwnerUSBComponentSummaryDoesNotClaimExecutableInstallation(t *testing.T
     } {
         if got := ownerUSBComponentSummary(input); got != "" {
             t.Fatalf("unverified transport generated evidence: %q", got)
+        }
+    }
+}
+
+func TestOwnerUSBRemoteBaseAvailabilityTranslationIsExplicit(t *testing.T) {
+    for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+        message := strings.ToLower(creatorMessageFor(locale, msgUSBUpdateBaseAvailable, nil))
+        if locale == creatorLocalePTBR && !strings.Contains(message, "não transferida") {
+            t.Fatalf("PT-BR binary remote-only disclaimer missing: %q", message)
+        }
+        if locale == creatorLocaleENUS && !strings.Contains(message, "not transferred") {
+            t.Fatalf("EN-US binary remote-only disclaimer missing: %q", message)
         }
     }
 }

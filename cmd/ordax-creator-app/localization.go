@@ -64,6 +64,7 @@ const (
 	msgUSBUpdateGitEvidence     creatorMessageID = "creator.usbUpdate.gitEvidence"
 	msgUSBUpdateSurfaceEvidence creatorMessageID = "creator.usbUpdate.surfaceEvidence"
 	msgUSBUpdateBaseEvidence    creatorMessageID = "creator.usbUpdate.baseEvidence"
+	msgUSBUpdateBaseAvailable   creatorMessageID = "creator.usbUpdate.baseAvailable"
 	msgActionBack                creatorMessageID = "creator.action.back"
 	msgBootHelp                  creatorMessageID = "creator.bootHelp.body"
 	msgTargetUnnamed             creatorMessageID = "creator.target.unnamed"
@@ -197,6 +198,7 @@ var creatorPTBRMessages = map[creatorMessageID]string{
 	msgUSBUpdateGitEvidence:     "Pacote Git no USB: verificado (%s); não aplicado.",
 	msgUSBUpdateSurfaceEvidence: "Surface EROFS: não verificável pelo Windows.",
 	msgUSBUpdateBaseEvidence:    "Base / Kernel: não alterados pelo Creator.",
+	msgUSBUpdateBaseAvailable:   "Base remota compatível: %s (disponível, não transferida ao USB)."
 	msgActionBack:                "Voltar",
 	msgBootHelp:                  "Como iniciar pelo OrdaX USB\n\n1. Deixe o pendrive OrdaX conectado ao computador.\n2. Reinicie o computador.\n3. Abra o menu de boot/UEFI da máquina. A tecla varia conforme o fabricante.\n4. Escolha o dispositivo USB/UEFI correspondente ao pendrive OrdaX.\n5. O OrdaX inicia diretamente pelo USB; o Creator não instala o sistema no SSD ou HD interno.\n\nSe o USB não aparecer, verifique no firmware se a inicialização por USB está habilitada e tente outra porta USB.",
 	msgTargetUnnamed:             "Sem nome",
@@ -330,6 +332,7 @@ var creatorENUSMessages = map[creatorMessageID]string{
 	msgUSBUpdateGitEvidence:     "Git package on USB: verified (%s); not applied.",
 	msgUSBUpdateSurfaceEvidence: "Surface EROFS: not verifiable from Windows.",
 	msgUSBUpdateBaseEvidence:    "Base / Kernel: not changed by Creator.",
+	msgUSBUpdateBaseAvailable:   "Compatible remote Base: %s (available, not transferred to USB)."
 	msgActionBack:                "Back",
 	msgBootHelp:                  "How to boot from the OrdaX USB\n\n1. Keep the OrdaX USB drive connected to the computer.\n2. Restart the computer.\n3. Open the machine's boot/UEFI menu. The key varies by manufacturer.\n4. Choose the USB/UEFI device that corresponds to the OrdaX USB drive.\n5. OrdaX starts directly from USB; Creator does not install the system on the internal SSD or hard drive.\n\nIf the USB device does not appear, check the firmware settings to ensure USB boot is enabled and try another USB port.",
 	msgTargetUnnamed:             "Unnamed",

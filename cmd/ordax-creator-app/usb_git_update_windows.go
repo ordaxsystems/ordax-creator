@@ -398,19 +398,19 @@ func ownerUSBComponentSummary(state ownerUSBUpdateStatus) string {
     if !validLowerHexString(state.SourceCommit, 40) {
         return ""
     }
-    baseEvidence := creatorT(msgUSBUpdateBaseEvidence)
-    if state.BaseStatus == "AVAILABLE_NOT_STAGED" &&
-        validLowerHexString(state.BaseArtifactCommit, 40) {
-        // This is a published remote candidate only; the translated Base
-        // and non-activation warnings remain visible.
-        baseEvidence += " (" + state.BaseArtifactCommit[:12] + ")"
-    }
-    return strings.Join([]string{
+    componentEvidence := []string{
         fmt.Sprintf(creatorT(msgUSBUpdateGitEvidence), state.SourceCommit[:12]),
         creatorT(msgUSBUpdateSurfaceEvidence),
-        baseEvidence,
-        creatorT(msgUSBUpdateNotActivated),
-    }, "\n")
+        creatorT(msgUSBUpdateBaseEvidence),
+    }
+    if state.BaseStatus == "AVAILABLE_NOT_STAGED" &&
+        validLowerHexString(state.BaseArtifactCommit, 40) {
+        // A publication is neither USB readback nor installed/healthy Base.
+        componentEvidence = append(componentEvidence,
+            fmt.Sprintf(creatorT(msgUSBUpdateBaseAvailable), state.BaseArtifactCommit[:12]))
+    }
+    componentEvidence = append(componentEvidence, creatorT(msgUSBUpdateNotActivated))
+    return strings.Join(componentEvidence, "\n")
 }
 
 func renderOwnerUSBUpdateDone() {

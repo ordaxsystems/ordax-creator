@@ -53,6 +53,74 @@ class LocalSyncTests(unittest.TestCase):
             result = SYNC.creator_process_active()
         self.assertIs(type(result), bool)
 
+    def test_canonical_base_probe_is_read_only_and_uses_os_authority(self):
+        import subprocess
+        requested, base = "a" * 40, "b" * 40
+        commands = []
+
+        def fake_run(argv, **kw):
+            commands.append((argv, kw))
+            if argv[0] == "/usr/bin/git":
+                self.assertEqual(argv[1:4], ["-C", str(self.root), "show"])
+                self.assertTrue(argv[4].startswith("HEAD:system/services/base-update/"))
+                return subprocess.CompletedProcess(argv, 0, stdout=b"# os owner fixture\n")
+            self.assertEqual(argv[0], SYNC.sys.executable)
+            self.assertIn("-I", argv)
+            self.assertIn("--resolve-only", argv)
+            self.assertNotIn("--acquire-only", argv)
+            self.assertNotIn("--destination-root", argv)
+            self.assertEqual(argv[argv.index("--source-commit")+1], requested)
+            self.assertEqual(argv[argv.index("--compatible-worktree")+1], str(self.root))
+            self.assertLessEqual(kw["timeout"], 15)
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=json.dumps({
+                    "status": "resolved",
+                    "source_commit": base,
+                    "requested_source_commit": requested,
+                    "exact_source": False,
+                }).encode(),
+            )
+
+        with mock.patch.object(SYNC.shutil, "which", side_effect=lambda n: "/usr/bin/" + n), \
+             mock.patch.object(SYNC.subprocess, "run", side_effect=fake_run):
+            receipt = SYNC.inspect_canonical_dev_base(self.root, requested)
+        self.assertEqual(receipt, {
+            "base_status": "AVAILABLE_NOT_STAGED",
+            "base_artifact_commit": base,
+        })
+        self.assertEqual(len(commands), 4)
+        self.assertEqual(len([c for c, _ in commands if c[0] == "/usr/bin/git"]), 3)
+
+    def test_base_probe_fails_closed_without_binary_availability_or_touching_usb(self):
+        import subprocess
+        requested = "a" * 40
+        for resolved in (
+            {"status": "ready", "source_commit": requested,
+             "requested_source_commit": requested, "exact_source": True},
+            {"status": "resolved", "source_commit": "invalid",
+             "requested_source_commit": requested, "exact_source": False},
+            {"status": "resolved", "source_commit": requested,
+             "requested_source_commit": requested, "exact_source": False},
+            {"status": "resolved", "source_commit": requested,
+             "requested_source_commit": "c" * 40, "exact_source": True},
+        ):
+            def fake_run(argv, **kw):
+                if argv[0] == "/usr/bin/git":
+                    return subprocess.CompletedProcess(argv, 0, stdout=b"safe script fixture")
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout=json.dumps(resolved).encode(),
+                )
+            with mock.patch.object(SYNC.shutil, "which",
+                                   side_effect=lambda n: "/usr/bin/" + n), \
+                 mock.patch.object(SYNC.subprocess, "run", side_effect=fake_run):
+                self.assertEqual(SYNC.inspect_canonical_dev_base(self.root, requested), {})
+
+        with mock.patch.object(SYNC.shutil, "which", return_value=None), \
+             mock.patch.object(SYNC.subprocess, "run") as run:
+            self.assertEqual(SYNC.inspect_canonical_dev_base(self.root, requested), {})
+            run.assert_not_called()
+        self.assertEqual(SYNC.inspect_canonical_dev_base(self.root, "not-a-sha"), {})
+
     def test_mutable_release_tag_uses_fresh_digest_bound_cache_keys(self):
         url = SYNC.fresh_manifest_url(12345)
         self.assertEqual(url, SYNC.MANIFEST_URL + "?ordax_nocache=12345")
