@@ -15,6 +15,10 @@ on:
       - physicalchannel/**
       - internal/**
       - update/**
+      - tools/owner_local_sync.py
+      - tools/owner_usb_git_delivery.py
+      - tools/test_owner_local_sync.py
+      - tools/test_owner_usb_git_delivery.py
       - go.mod
       - version.json
   pull_request:
@@ -29,6 +33,10 @@ on:
       - physicalchannel/**
       - internal/**
       - update/**
+      - tools/owner_local_sync.py
+      - tools/owner_usb_git_delivery.py
+      - tools/test_owner_local_sync.py
+      - tools/test_owner_usb_git_delivery.py
       - go.mod
       - version.json
 
