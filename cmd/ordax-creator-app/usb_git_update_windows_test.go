@@ -154,3 +154,26 @@ func TestOwnerUSBUpdateAcceptsOnlyVerifiedStagingReceipts(t *testing.T) {
         }
     }
 }
+
+// A staged source bundle must never be presented as an activated system update.
+func TestOwnerUSBComponentSummaryDoesNotClaimExecutableInstallation(t *testing.T) {
+    for _, result := range []string{"CURRENT", "STAGED_NOT_ACTIVATED"} {
+        view := ownerUSBComponentSummary(ownerUSBUpdateStatus{
+            Result: result, SourceCommit: strings.Repeat("a", 40),
+        })
+        for _, expected := range []string{"Git", "Surface", "Base", "aaaaaaaaaaaa"} {
+            if !strings.Contains(view, expected) {
+                t.Fatalf("missing %q in component evidence %q", expected, view)
+            }
+        }
+    }
+    for _, input := range []ownerUSBUpdateStatus{
+        {Result: "AVAILABLE", SourceCommit: strings.Repeat("a", 40)},
+        {Result: "CURRENT", SourceCommit: "invalid"},
+        {Result: ""},
+    } {
+        if got := ownerUSBComponentSummary(input); got != "" {
+            t.Fatalf("unverified transport generated evidence: %q", got)
+        }
+    }
+}

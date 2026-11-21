@@ -25,6 +25,7 @@ type ownerUSBUpdateStatus struct {
     Active bool
     Result string
     Error string
+    SourceCommit string
 }
 var (
     ownerUSBUpdateMu sync.Mutex
@@ -368,10 +369,32 @@ func startOwnerUSBUpdate(target physicalTarget) {
         ownerUSBUpdateMu.Lock()
         ownerUSBUpdateResult.Active = false
         ownerUSBUpdateResult.Error = ""
-        if runErr != nil { ownerUSBUpdateResult.Error = runErr.Error() } else { ownerUSBUpdateResult.Result = receipt.Status }
+        if runErr != nil {
+            ownerUSBUpdateResult.Error = runErr.Error()
+        } else {
+            ownerUSBUpdateResult.Result = receipt.Status
+            ownerUSBUpdateResult.SourceCommit = receipt.SourceCommit
+        }
         ownerUSBUpdateMu.Unlock()
         procPostMessageW.Call(mainWindow, wmAppUSBUpdateDone, 0, 0)
     }()
+}
+
+// The transport receipt attests to a Git bundle in ORDAX-DATA only.
+// It must never imply that the Linux kernel, Base, Surface or boot were updated.
+func ownerUSBComponentSummary(state ownerUSBUpdateStatus) string {
+    if state.Result != "CURRENT" && state.Result != "STAGED_NOT_ACTIVATED" {
+        return ""
+    }
+    if !validLowerHexString(state.SourceCommit, 40) {
+        return ""
+    }
+    return strings.Join([]string{
+        fmt.Sprintf(creatorT(msgUSBUpdateGitEvidence), state.SourceCommit[:12]),
+        creatorT(msgUSBUpdateSurfaceEvidence),
+        creatorT(msgUSBUpdateBaseEvidence),
+        creatorT(msgUSBUpdateNotActivated),
+    }, "\n")
 }
 
 func renderOwnerUSBUpdateDone() {
@@ -389,7 +412,7 @@ func renderOwnerUSBUpdateDone() {
         } else {
             setCreatorStatus(creatorT(msgUSBUpdateComplete))
         }
-        setCreatorHint(creatorT(msgUSBUpdateNotActivated))
+        setCreatorHint(ownerUSBComponentSummary(state))
         setProgressComplete()
     }
     enable(localeCombo, true)

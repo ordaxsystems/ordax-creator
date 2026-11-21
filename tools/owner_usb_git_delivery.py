@@ -105,19 +105,60 @@ def manifest_bytes(commit: str, sha256: str, size: int) -> bytes:
             + "bundle_bytes=" + str(size) + "\n").encode("ascii")
 
 
-def existing_current(target: Path, commit: str) -> bool:
+def verified_local_bundle(target: Path) -> tuple[str, str, int] | None:
+    """Inspect only local Git transport bytes, never OS activation or provenance.
+
+    This detects a consistent local cache, not a signed release or a commit
+    authenticated against remote main. The OS retains that authority.
+    """
     manifest = target / MANIFEST
     bundle = target / BUNDLE
-    if not manifest.is_file() or not bundle.is_file() or manifest.is_symlink() or bundle.is_symlink():
-        return False
+    if manifest.is_symlink() or bundle.is_symlink():
+        raise DeliveryError("Owner USB Git transport has an unsafe member")
+    if not manifest.exists() and not bundle.exists():
+        return None
+    if not manifest.is_file() or not bundle.is_file():
+        raise DeliveryError("Owner USB Git transport is incomplete")
     try:
-        lines = manifest.read_bytes().splitlines(keepends=True)
-        if len(lines) != 5 or not all(line.endswith(b"\n") and b"\r" not in line for line in lines):
-            return False
-        size = bundle.stat().st_size
-        digest = sha256_file(bundle)
-        return manifest.read_bytes() == manifest_bytes(commit, digest, size)
-    except (OSError, UnicodeError, DeliveryError):
+        raw = manifest.read_bytes()
+        lines = raw.splitlines(keepends=True)
+        if len(lines) != 5 or any(not line.endswith(b"\n") or b"\r" in line for line in lines):
+            raise DeliveryError("Owner USB Git transport manifest is malformed")
+        expected = [b"schema=" + SCHEMA.encode("ascii"),
+                    b"repository=ordaxsystems/ordax-os"]
+        if [line.rstrip(b"\n") for line in lines[:2]] != expected:
+            raise DeliveryError("Owner USB Git transport manifest authority differs")
+        fields = [line.rstrip(b"\n").split(b"=", 1) for line in lines[2:]]
+        if len(fields) != 3 or [item[0] for item in fields] != [
+                b"source_commit", b"bundle_sha256", b"bundle_bytes"]:
+            raise DeliveryError("Owner USB Git transport manifest fields are malformed")
+        commit, digest, length = (item[1].decode("ascii") for item in fields)
+        if not length.isdecimal() or str(int(length)) != length:
+            raise DeliveryError("Owner USB Git transport length is malformed")
+        size = int(length)
+        if raw != manifest_bytes(commit, digest, size):
+            raise DeliveryError("Owner USB Git transport manifest changed")
+        if bundle.stat().st_size != size or sha256_file(bundle) != digest:
+            raise DeliveryError("Owner USB Git transport integrity check failed")
+        try:
+            heads = subprocess.run(
+                ["git", "bundle", "list-heads", str(bundle)],
+                capture_output=True, text=True, check=True, timeout=30,
+            ).stdout.strip()
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise DeliveryError("Owner USB Git bundle is not readable") from exc
+        if heads != commit + " refs/heads/main":
+            raise DeliveryError("Owner USB Git bundle head disagrees with manifest")
+        return commit, digest, size
+    except (UnicodeError, ValueError, OSError) as exc:
+        raise DeliveryError("Owner USB Git transport cannot be verified") from exc
+
+
+def existing_current(target: Path, commit: str) -> bool:
+    try:
+        value = verified_local_bundle(target)
+        return value is not None and value[0] == commit
+    except DeliveryError:
         return False
 
 
@@ -365,7 +406,7 @@ def discover_trusted_volume(expected_serial: str) -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", type=Path, required=True)
+    parser.add_argument("--repo", type=Path)
     destination = parser.add_mutually_exclusive_group(required=True)
     destination.add_argument("--volume", help="ORDAX-DATA drive letter, e.g. E")
     destination.add_argument("--auto-volume", action="store_true",
@@ -374,6 +415,7 @@ def main() -> int:
     parser.add_argument("--trusted-disk-number", type=int,
                         help="also require selected Windows physical disk number")
     parser.add_argument("--apply", action="store_true", help="stage only on verified USB data volume")
+    parser.add_argument("--inspect", action="store_true", help="read-only integrity of local USB Git transport")
     args = parser.parse_args()
     try:
         with exclusive_transport():
@@ -385,6 +427,10 @@ def main() -> int:
 
 def deliver(args: argparse.Namespace) -> int:
     try:
+        if args.inspect and args.apply:
+            raise DeliveryError("inspection cannot write")
+        if args.inspect and (not args.trusted_serial or args.trusted_disk_number is None):
+            raise DeliveryError("inspection requires exact selected USB identity")
         if args.apply and not args.trusted_serial:
             raise DeliveryError("staging requires explicit locally authorized USB serial")
         if args.auto_volume:
@@ -403,6 +449,19 @@ def deliver(args: argparse.Namespace) -> int:
         volume = Path(letter + ":\\")
         target = volume / SUBDIR
         ensure_real_ancestors(volume, target)
+        if args.inspect:
+            local = verified_local_bundle(target)
+            if checked_volume(letter) != before:
+                raise DeliveryError("physical USB identity changed during inspection")
+            if local is None:
+                print(json.dumps({"status": "GIT_BUNDLE_NOT_STAGED"}))
+            else:
+                commit, digest, size = local
+                print(json.dumps({"status": "GIT_BUNDLE_LOCAL_VERIFIED",
+                                  "source_commit": commit, "sha256": digest, "bytes": size}))
+            return 0
+        if args.repo is None:
+            raise DeliveryError("canonical OS Git checkout required")
         commit = source_commit(args.repo.resolve())
         if existing_current(target, commit):
             print(json.dumps({"status": "CURRENT", "source_commit": commit}))
