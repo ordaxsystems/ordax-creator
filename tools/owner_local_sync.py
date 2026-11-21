@@ -511,14 +511,28 @@ def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
         return "DEFERRED_CREATOR_RUNNING"
     delivery = Path(__file__).with_name("owner_usb_git_delivery.py")
     os_repo = Path(__file__).resolve().parents[2] / "ordax-os"
-    if not delivery.is_file() or not (os_repo / ".git").is_dir():
-        raise SyncError("canonical Owner Git deliverer or OS checkout unavailable")
+    if not delivery.is_file():
+        raise SyncError("canonical Owner Git deliverer unavailable")
     if expected_disk_number is not None and (
             type(expected_disk_number) is not int or expected_disk_number < 0):
         raise SyncError("invalid selected USB disk number")
     with owner_usb_stage_gate(60.0 if from_creator_ui else 0.0) as acquired:
         if not acquired:
             return "DEFERRED_OWNER_GIT_BUSY"
+        # The canonical writer owns physical discovery; reuse it before any
+        # network/cache work. The writer independently revalidates identity
+        # after fetch and before staging, so hot-unplug cannot authorize writes.
+        from owner_usb_git_delivery import DeliveryError, discover_trusted_volume
+        try:
+            present_volume = discover_trusted_volume(expected_serial)
+        except DeliveryError as exc:
+            raise SyncError(str(exc)) from exc
+        if present_volume is None:
+            if from_creator_ui:
+                raise SyncError("selected Owner USB disappeared before staging")
+            return "SKIP_TRUSTED_USB_NOT_PRESENT"
+        if not (os_repo / ".git").is_dir():
+            raise SyncError("canonical OS checkout unavailable")
         main_repo = _owner_main_delivery_checkout(os_repo)
         command = [sys.executable, str(delivery), "--repo", str(main_repo),
                    "--auto-volume", "--trusted-serial", expected_serial, "--apply"]

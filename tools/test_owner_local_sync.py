@@ -297,6 +297,42 @@ class LocalSyncTests(unittest.TestCase):
         with mock.patch.object(SYNC, "creator_process_active", return_value=True):
             self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
                              "DEFERRED_CREATOR_RUNNING")
+    def test_absent_trusted_usb_skips_git_and_transport(self):
+        import contextlib
+        import owner_usb_git_delivery as delivery
+        with (
+            mock.patch.object(SYNC, "creator_process_active", return_value=False),
+            mock.patch.object(SYNC, "owner_usb_stage_gate",
+                              return_value=contextlib.nullcontext(True)),
+            mock.patch.object(delivery, "discover_trusted_volume", return_value=None),
+            mock.patch.object(SYNC, "_owner_main_delivery_checkout") as fetch,
+            mock.patch.object(SYNC, "run_owner_usb_transport") as transport,
+        ):
+            self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
+                             "SKIP_TRUSTED_USB_NOT_PRESENT")
+            with self.assertRaisesRegex(SYNC.SyncError, "disappeared before staging"):
+                SYNC.stage_owner_usb_dev("6699E36B", from_creator_ui=True,
+                                        expected_disk_number=1)
+        fetch.assert_not_called()
+        transport.assert_not_called()
+
+    def test_ambiguous_usb_does_not_fetch_or_stage(self):
+        import contextlib
+        import owner_usb_git_delivery as delivery
+        with (
+            mock.patch.object(SYNC, "creator_process_active", return_value=False),
+            mock.patch.object(SYNC, "owner_usb_stage_gate",
+                              return_value=contextlib.nullcontext(True)),
+            mock.patch.object(delivery, "discover_trusted_volume",
+                              side_effect=delivery.DeliveryError("multiple volumes")),
+            mock.patch.object(SYNC, "_owner_main_delivery_checkout") as fetch,
+            mock.patch.object(SYNC, "run_owner_usb_transport") as transport,
+        ):
+            with self.assertRaisesRegex(SYNC.SyncError, "multiple volumes"):
+                SYNC.stage_owner_usb_dev("6699E36B")
+        fetch.assert_not_called()
+        transport.assert_not_called()
+
     def test_usb_is_prepared_before_creator_release_network_check(self):
         events = []
         with (
