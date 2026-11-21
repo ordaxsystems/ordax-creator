@@ -179,6 +179,46 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(APP.DeliveryError, "disk number"):
             APP.enforce_selected_disk({"disk": "1"}, 1)
 
+class WindowsBoundedGitTests(unittest.TestCase):
+    @unittest.skipUnless(__import__("os").name == "nt", "native Windows Job Object")
+    def test_git_timeout_does_not_leave_pack_child_running(self):
+        import ctypes
+        import os
+        import sys
+        with tempfile.TemporaryDirectory() as temporary:
+            pid_file = Path(temporary) / "descendant.pid"
+            child = "import time; time.sleep(60)"
+            parent = (
+                "import subprocess,sys,time; "
+                "p=subprocess.Popen([sys.executable,'-c',"
+                + repr(child)
+                + "]); open("
+                + repr(str(pid_file))
+                + ",'w').write(str(p.pid)); time.sleep(60)"
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                APP._windows_git_job([sys.executable, "-c", parent], timeout=1)
+            self.assertTrue(pid_file.is_file(), "test descendant never started")
+            pid = int(pid_file.read_text(encoding="utf-8"))
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.argtypes = (
+                ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32,
+            )
+            kernel.OpenProcess.restype = ctypes.c_void_p
+            kernel.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+            kernel.WaitForSingleObject.restype = ctypes.c_uint32
+            kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+            handle = kernel.OpenProcess(0x00100000, 0, pid)  # SYNCHRONIZE
+            if handle:
+                try:
+                    self.assertEqual(
+                        kernel.WaitForSingleObject(handle, 2500), 0,
+                        "Git timeout orphaned a child process",
+                    )
+                finally:
+                    kernel.CloseHandle(handle)
+
+
 class ExclusiveTransportTests(unittest.TestCase):
     def test_one_transport_lock_rejects_concurrent_windows_writers(self):
         import os

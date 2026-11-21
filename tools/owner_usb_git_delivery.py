@@ -61,9 +61,101 @@ def exclusive_transport():
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
-def git(repo: Path, *args: str, timeout=90) -> str:
+def _windows_git_job(argv: list[str], timeout: int) -> str:
+    """Bound Git and its pack-objects descendants to one native Windows Job.
+
+    Killing only git.exe on timeout can orphan pack-objects and leave a
+    permanent .bundle.lock. Closing the Job handle terminates its descendants.
+    This scope never includes the Creator, its task or another Git invocation.
+    """
+    import ctypes.wintypes as wt
+
+    class BasicLimit(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wt.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wt.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wt.DWORD),
+            ("SchedulingClass", wt.DWORD),
+        ]
+
+    class IOCounters(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class ExtendedLimit(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimit),
+            ("IoInfo", IOCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateJobObjectW.argtypes = (ctypes.c_void_p, wt.LPCWSTR)
+    kernel.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel.SetInformationJobObject.argtypes = (
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wt.DWORD,
+    )
+    kernel.SetInformationJobObject.restype = wt.BOOL
+    kernel.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+    kernel.AssignProcessToJobObject.restype = wt.BOOL
+    kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+    kernel.CloseHandle.restype = wt.BOOL
+
+    job = kernel.CreateJobObjectW(None, None)
+    if not job:
+        raise DeliveryError("cannot create bounded Windows Git job")
+    process = None
     try:
-        result = subprocess.run(["git", "-C", str(repo), *args], text=True,
+        limits = ExtendedLimit()
+        limits.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+        if not kernel.SetInformationJobObject(
+            job, 9, ctypes.byref(limits), ctypes.sizeof(limits)
+        ):
+            raise DeliveryError("cannot constrain Windows Git process tree")
+        process = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if not kernel.AssignProcessToJobObject(job, ctypes.c_void_p(int(process._handle))):
+            raise DeliveryError("cannot assign Git descendants to bounded Windows job")
+        stdout, stderr = process.communicate(timeout=timeout)
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(
+                process.returncode, argv, output=stdout, stderr=stderr,
+            )
+        return stdout.strip()
+    finally:
+        # Also on timeout, exception or assignment error: the OS kills all
+        # process descendants before the exclusive USB transport lock releases.
+        kernel.CloseHandle(job)
+        if process is not None:
+            try:
+                process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+
+
+def git(repo: Path, *args: str, timeout=90) -> str:
+    command = ["git", "-C", str(repo), *args]
+    try:
+        if os.name == "nt":
+            return _windows_git_job(command, timeout)
+        result = subprocess.run(command, text=True,
                                 capture_output=True, check=True, timeout=timeout)
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
         raise DeliveryError("Git source or bundle verification failed") from exc
