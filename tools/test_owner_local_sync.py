@@ -297,6 +297,56 @@ class LocalSyncTests(unittest.TestCase):
         with mock.patch.object(SYNC, "creator_process_active", return_value=True):
             self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
                              "DEFERRED_CREATOR_RUNNING")
+    def test_delivery_cache_is_independent_of_developer_checkout(self):
+        import os
+        import subprocess
+        import owner_usb_git_delivery as delivery
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            remote = root / "remote"
+            remote.mkdir()
+            real_run = subprocess.run
+            def git(*args):
+                return real_run(["git", "-C", str(remote), *args],
+                                text=True, capture_output=True, check=True).stdout.strip()
+            git("init", "-b", "main")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            file = remote / "bootstrap/dev-base/ordax-pull"
+            file.parent.mkdir(parents=True)
+            file.write_text("v1\n")
+            git("add", ".")
+            git("commit", "-m", "initial")
+            # Rewrite only network operations in this fixture. The stored
+            # remote URL and the production identity check remain canonical.
+            commands = []
+            def network_fixture(args, **kwargs):
+                commands.append(list(args))
+                args = list(args)
+                if "clone" in args or "fetch" in args:
+                    args[1:1] = ["-c", f"url.{remote.as_uri()}.insteadOf={delivery.REPO_URL}"]
+                return real_run(args, **kwargs)
+            # Existing alternates-based cache is disposable but preserved
+            # until the independent replacement has been verified.
+            cache = root / "local" / "OrdaX-Creator" / "owner-main-delivery"
+            cache.parent.mkdir(parents=True)
+            real_run(["git", "clone", "--shared", str(remote), str(cache)],
+                     check=True, capture_output=True)
+            real_run(["git", "-C", str(cache), "remote", "set-url", "origin",
+                      delivery.REPO_URL], check=True)
+            with (mock.patch.dict(os.environ, {"LOCALAPPDATA": str(root / "local")}),
+                  mock.patch.object(SYNC.subprocess, "run", side_effect=network_fixture)):
+                self.assertEqual(SYNC._owner_main_delivery_checkout(), cache)
+                self.assertFalse((cache / ".git/objects/info/alternates").exists())
+                self.assertFalse(cache.with_name(cache.name + ".retired").exists())
+                self.assertEqual((cache / "bootstrap/dev-base/ordax-pull").read_text(), "v1\n")
+                file.write_text("v2\n")
+                git("add", ".")
+                git("commit", "-m", "new source")
+                self.assertEqual(SYNC._owner_main_delivery_checkout(), cache)
+                self.assertEqual((cache / "bootstrap/dev-base/ordax-pull").read_text(), "v2\n")
+                self.assertEqual(sum("clone" in cmd for cmd in commands), 1)
+
     def test_absent_trusted_usb_skips_git_and_transport(self):
         import contextlib
         import owner_usb_git_delivery as delivery

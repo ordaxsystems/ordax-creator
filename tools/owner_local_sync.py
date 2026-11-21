@@ -445,11 +445,12 @@ def run_owner_usb_transport(command: list[str], *, from_creator_ui: bool):
         time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
 
 
-def _owner_main_delivery_checkout(os_repo: Path) -> Path:
-    """Prepare one cached exact-main checkout without changing active work."""
-    canonical = "https://github.com/ordaxsystems/ordax-os.git"
+def _owner_main_delivery_checkout() -> Path:
+    """Keep one independent exact-main delivery cache, never borrow a DEV checkout."""
+    from owner_usb_git_delivery import REPO_URL
     root = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "OrdaX-Creator"
     cache = root / "owner-main-delivery"
+    retired = root / "owner-main-delivery.retired"
 
     def run_git(*args: str, timeout: int = 150) -> str:
         try:
@@ -461,46 +462,82 @@ def _owner_main_delivery_checkout(os_repo: Path) -> Path:
             raise SyncError("canonical Owner Git main cache could not be updated") from exc
         return completed.stdout.strip()
 
-    if os_repo.is_symlink() or not (os_repo / ".git").is_dir():
-        raise SyncError("canonical OS source checkout is unavailable")
-    if run_git("-C", str(os_repo), "remote", "get-url", "origin") != canonical:
-        raise SyncError("OS source origin is not canonical")
-    if cache.is_symlink() or (hasattr(cache, "is_junction") and cache.is_junction()):
-        raise SyncError("Owner main cache path is unsafe")
+    def linked(path: Path) -> bool:
+        return path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction())
 
-    if not cache.exists():
-        root.mkdir(parents=True, exist_ok=True)
+    def check_checkout(path: Path) -> None:
+        if linked(path) or linked(path / ".git") or not (path / ".git").is_dir():
+            raise SyncError("Owner main cache is not a standalone Git checkout")
+        if run_git("-C", str(path), "remote", "get-url", "origin") != REPO_URL:
+            raise SyncError("Owner main cache origin differs from canonical OS")
+        if run_git("-C", str(path), "status", "--porcelain=v1"):
+            raise SyncError("Owner main cache contains uncommitted changes")
+
+    def borrowed(path: Path) -> bool:
+        gitdir = path / ".git"
+        return (os.path.lexists(gitdir / "objects/info/alternates")
+                or (gitdir / "shallow").exists()
+                or any((gitdir / "objects/pack").glob("*.promisor")))
+
+    if linked(root) or linked(cache) or linked(retired):
+        raise SyncError("Owner main cache path is unsafe")
+    root.mkdir(parents=True, exist_ok=True)
+    # Recover an interrupted cache cutover under the existing stage lock.
+    if retired.exists():
+        check_checkout(retired)
+        if not cache.exists():
+            retired.rename(cache)
+        else:
+            check_checkout(cache)
+            if borrowed(cache):
+                raise SyncError("Owner main cache cutover is ambiguous")
+            shutil.rmtree(retired)
+
+    if cache.exists():
+        check_checkout(cache)
+
+    # Full history is required by the current self-contained Git bundle.
+    # A shallow/partial/alternate checkout can silently lack those objects.
+    # Rebuild only the existing disposable transport cache once when needed.
+    if not cache.exists() or borrowed(cache):
         pending = root / ("owner-main-delivery.pending-" + str(os.getpid()))
-        if pending.exists():
+        if os.path.lexists(pending):
             raise SyncError("Owner main cache creation is already pending")
         try:
-            run_git("clone", "--shared", "--no-checkout", str(os_repo), str(pending))
-            run_git("-C", str(pending), "remote", "set-url", "origin", canonical)
+            run_git("clone", "--no-tags", "--single-branch", "--branch", "main",
+                    "--no-checkout", REPO_URL, str(pending), timeout=300)
             run_git("-C", str(pending), "sparse-checkout", "init", "--cone")
             run_git("-C", str(pending), "sparse-checkout", "set", "bootstrap/dev-base")
-            pending.rename(cache)
+            check_checkout(pending)
+            if borrowed(pending):
+                raise SyncError("new Owner main cache lacks independent Git objects")
+            if cache.exists():
+                # Preserve the old validated cache until replacement succeeds.
+                cache.rename(retired)
+            try:
+                pending.rename(cache)
+            except OSError:
+                if retired.exists() and not cache.exists():
+                    retired.rename(cache)
+                raise
+            if retired.exists():
+                shutil.rmtree(retired)
         finally:
             if pending.exists():
                 shutil.rmtree(pending)
-
-    if not (cache / ".git").is_dir() or (cache / ".git").is_symlink():
-        raise SyncError("Owner main cache is not a standalone Git checkout")
-    if run_git("-C", str(cache), "remote", "get-url", "origin") != canonical:
-        raise SyncError("Owner main cache origin differs from canonical OS")
-    if run_git("-C", str(cache), "status", "--porcelain=v1"):
-        raise SyncError("Owner main cache contains uncommitted changes")
+        # The writer independently confirms the canonical remote main SHA.
+        return cache
 
     previous_branch = run_git("-C", str(cache), "branch", "--show-current")
     previous_head = run_git("-C", str(cache), "rev-parse", "HEAD")
     run_git("-C", str(cache), "fetch", "--no-tags", "origin", "main")
     candidate = run_git("-C", str(cache), "rev-parse", "FETCH_HEAD")
-    if previous_branch == "main" and previous_head != candidate:
-        run_git("-C", str(cache), "merge-base", "--is-ancestor",
-                previous_head, candidate)
-    if previous_branch != "main" or previous_head != candidate:
-        run_git("-C", str(cache), "switch", "-C", "main", candidate)
-    if run_git("-C", str(cache), "status", "--porcelain=v1"):
-        raise SyncError("Owner main cache checkout did not settle cleanly")
+    if previous_branch != "main":
+        raise SyncError("Owner main delivery cache is not on main")
+    if previous_head != candidate:
+        run_git("-C", str(cache), "merge-base", "--is-ancestor", previous_head, candidate)
+        run_git("-C", str(cache), "merge", "--ff-only", candidate)
+    check_checkout(cache)
     return cache
 
 
@@ -510,7 +547,6 @@ def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
     if not from_creator_ui and creator_process_active():
         return "DEFERRED_CREATOR_RUNNING"
     delivery = Path(__file__).with_name("owner_usb_git_delivery.py")
-    os_repo = Path(__file__).resolve().parents[2] / "ordax-os"
     if not delivery.is_file():
         raise SyncError("canonical Owner Git deliverer unavailable")
     if expected_disk_number is not None and (
@@ -531,9 +567,7 @@ def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
             if from_creator_ui:
                 raise SyncError("selected Owner USB disappeared before staging")
             return "SKIP_TRUSTED_USB_NOT_PRESENT"
-        if not (os_repo / ".git").is_dir():
-            raise SyncError("canonical OS checkout unavailable")
-        main_repo = _owner_main_delivery_checkout(os_repo)
+        main_repo = _owner_main_delivery_checkout()
         command = [sys.executable, str(delivery), "--repo", str(main_repo),
                    "--auto-volume", "--trusted-serial", expected_serial, "--apply"]
         if expected_disk_number is not None:

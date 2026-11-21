@@ -45,7 +45,6 @@ type ownerUSBTaskInfo struct {
 type ownerUSBTransport struct {
     Python string
     Script string
-    Repo string
     Serial string
 }
 type ownerUSBReceipt struct {
@@ -112,18 +111,13 @@ func ownerUSBTransportFromTask(task ownerUSBTaskInfo, target physicalTarget, exe
         return ownerUSBTransport{}, errors.New("Owner Dev task is outside the canonical source workspace")
     }
     script := filepath.Join(creatorRepo, "tools", "owner_usb_git_delivery.py")
-    osRepo := filepath.Join(filepath.Dir(creatorRepo), "ordax-os")
     for _, name := range []string{task.Executable, fields[1], script} {
         info, err := os.Lstat(name)
         if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
             return ownerUSBTransport{}, errors.New("Owner Dev transport is not an installed regular file")
         }
     }
-    info, err := os.Lstat(filepath.Join(osRepo, ".git"))
-    if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-        return ownerUSBTransport{}, errors.New("canonical OS Git checkout is not available")
-    }
-    return ownerUSBTransport{Python: task.Executable, Script: script, Repo: osRepo, Serial: serial}, nil
+    return ownerUSBTransport{Python: task.Executable, Script: script, Serial: serial}, nil
 }
 
 // The USB topology observer only proposes staging for the one USB already

@@ -148,6 +148,16 @@ O Supervisor Owner Dev já consome este cache em modo somente leitura e só
 reutiliza objetos Git quando a `main` HTTPS confirma exatamente o mesmo commit.
 A cópia do bundle não equivale à instalação ou à ativação do OS.
 
+### Cache Git independente do checkout do desenvolvedor
+
+GUI e tarefa Owner Dev usam o mesmo cache de entrega existente, adquirido
+diretamente da `main` canônica do OS. Nenhum checkout local do desenvolvedor
+é necessário ou modificado. O cache mantém objetos próprios para o bundle;
+um cache antigo com alternates, shallow ou objetos promisor é substituído
+somente após validar o novo checkout. Atualizações subsequentes fazem
+fast-forward do mesmo cache; o escritor ainda confirma a main remota antes
+de tocar a mídia autorizada.
+
 ### Preparação automática na tarefa Owner Dev já existente
 
 O agendador local `OrdaX Creator Dev Release Sync` pode receber o argumento

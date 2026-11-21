@@ -50,10 +50,8 @@ func TestOwnerUSBTaskReusesCanonicalInstalledTransport(t *testing.T) {
     home := t.TempDir()
     github := filepath.Join(home, "GitHub")
     creator := filepath.Join(github, "ordax-creator")
-    osRepo := filepath.Join(github, "ordax-os")
     tools := filepath.Join(creator, "tools")
     if err := os.MkdirAll(tools, 0700); err != nil { t.Fatal(err) }
-    if err := os.MkdirAll(filepath.Join(osRepo, ".git"), 0700); err != nil { t.Fatal(err) }
     for _, p := range []string{filepath.Join(tools, "owner_local_sync.py"),
         filepath.Join(tools, "owner_usb_git_delivery.py"), filepath.Join(home, "python.exe")} {
         if err := os.WriteFile(p, []byte("test"), 0600); err != nil { t.Fatal(err) }
@@ -68,7 +66,7 @@ func TestOwnerUSBTaskReusesCanonicalInstalledTransport(t *testing.T) {
         State: "Ready", Concurrency: "IgnoreNew",
     }
     value, err := ownerUSBTransportFromTask(task, testOwnerUSBTarget(), app)
-    if err != nil || value.Repo != osRepo || value.Script != filepath.Join(tools, "owner_usb_git_delivery.py") {
+    if err != nil || value.Script != filepath.Join(tools, "owner_usb_git_delivery.py") {
         t.Fatalf("canonical Owner Dev transport rejected: %+v %v", value, err)
     }
     task.Concurrency = "Parallel"
@@ -90,10 +88,8 @@ func TestOwnerUSBTaskReusesCanonicalInstalledTransport(t *testing.T) {
 func TestOwnerUSBTrustedHotplugRequiresUniqueAuthorizedSerial(t *testing.T) {
     home := t.TempDir()
     creatorRepo := filepath.Join(home, "GitHub", "ordax-creator")
-    osRepo := filepath.Join(home, "GitHub", "ordax-os")
     tools := filepath.Join(creatorRepo, "tools")
     if err := os.MkdirAll(tools, 0700); err != nil { t.Fatal(err) }
-    if err := os.MkdirAll(filepath.Join(osRepo, ".git"), 0700); err != nil { t.Fatal(err) }
     python := filepath.Join(home, "python.exe")
     script := filepath.Join(tools, "owner_local_sync.py")
     deliver := filepath.Join(tools, "owner_usb_git_delivery.py")
