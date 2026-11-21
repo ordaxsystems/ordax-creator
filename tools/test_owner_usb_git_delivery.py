@@ -54,6 +54,57 @@ class DeliveryTests(unittest.TestCase):
         self.assertFalse((self.delivery / (APP.MANIFEST + ".pending")).exists())
         self.assertFalse((self.delivery / (APP.BUNDLE + ".pending")).exists())
 
+    def test_read_only_inspection_verifies_local_bundle_without_activation(self):
+        self.assertIsNone(APP.verified_local_bundle(self.delivery))
+        digest, size = self.make_bundle()
+        APP.install_bundle(self.delivery, self.bundle, self.sha, digest, size)
+        self.assertEqual(APP.verified_local_bundle(self.delivery),
+                         (self.sha, digest, size))
+        self.assertEqual(git(self.source, "rev-parse", "HEAD"), self.sha)
+
+    def test_read_only_inspection_rejects_forged_manifest_head(self):
+        digest, size = self.make_bundle()
+        APP.install_bundle(self.delivery, self.bundle, self.sha, digest, size)
+        wrong_commit = "f" * 40
+        (self.delivery / APP.MANIFEST).write_bytes(
+            APP.manifest_bytes(wrong_commit, digest, size))
+        with self.assertRaisesRegex(APP.DeliveryError, "head disagrees"):
+            APP.verified_local_bundle(self.delivery)
+
+    def test_read_only_inspection_rejects_local_tampering_and_partial_transport(self):
+        digest, size = self.make_bundle()
+        APP.install_bundle(self.delivery, self.bundle, self.sha, digest, size)
+        (self.delivery / APP.BUNDLE).write_bytes(b"tampered")
+        with self.assertRaisesRegex(APP.DeliveryError, "integrity"):
+            APP.verified_local_bundle(self.delivery)
+        (self.delivery / APP.BUNDLE).unlink()
+        with self.assertRaisesRegex(APP.DeliveryError, "incomplete"):
+            APP.verified_local_bundle(self.delivery)
+
+    def test_inspection_does_not_access_remote_main_or_write_usb(self):
+        import argparse
+        import contextlib
+        import io
+        args = argparse.Namespace(repo=None, volume="E", auto_volume=False,
+                                  trusted_serial="6699E36B", trusted_disk_number=1,
+                                  inspect=True, apply=False)
+        sample = (self.sha, "a" * 64, 789)
+        with (
+            mock.patch.object(APP, "checked_volume", return_value={
+                "serial": "6699E36B", "disk": 1}) as checked,
+            mock.patch.object(APP, "ensure_real_ancestors"),
+            mock.patch.object(APP, "verified_local_bundle", return_value=sample),
+            mock.patch.object(APP, "source_commit") as git_lookup,
+            mock.patch.object(APP, "install_bundle") as writer,
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(APP.deliver(args), 0)
+        self.assertIn("GIT_BUNDLE_LOCAL_VERIFIED", output.getvalue())
+        self.assertIn(self.sha, output.getvalue())
+        self.assertEqual(checked.call_count, 2)
+        git_lookup.assert_not_called()
+        writer.assert_not_called()
+
     def test_rejects_tampering_with_existing_bundle(self):
         digest, size = self.make_bundle()
         APP.install_bundle(self.delivery, self.bundle, self.sha, digest, size)

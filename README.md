@@ -196,6 +196,21 @@ a implementação local permanece limpa e exatamente igual à `main` remota. O �
 serial, volume, SHA-256 e readback antes de publicar o manifesto. A interface
 não executa `ordax-pull`, não abre `PhysicalDrive` nem escreve na ESP/ext4.
 
+### Read-only USB Git transport inspection
+
+The existing canonical transport tool supports a read-only --inspect mode
+with --auto-volume, --trusted-serial and --trusted-disk-number. It requires
+no OS checkout or network connection, and rechecks the physical device identity
+before and after inspection. Local validation covers the exact manifest,
+SHA-256, file length and internal Git bundle head.
+
+GIT_BUNDLE_LOCAL_VERIFIED proves only local integrity of the transport stored
+in ORDAX-DATA. It does NOT authenticate the remote main, prove the Surface
+EROFS was installed, inspect Linux Base/Kernel, or permit activation.
+GIT_BUNDLE_NOT_STAGED means no transport was staged; incomplete or tampered
+transport is blocked. Creator's post-stage summary separates Git transport
+from executable evidence and OS/Supervisor activation.
+
 **Primeira instalação da Base:** continua sendo a ação separada
 **Criar OrdaX**, com confirmação de formatação e UAC. O botão incremental
 não substitui uma Base antiga que ainda não possui o consumidor do Supervisor.
