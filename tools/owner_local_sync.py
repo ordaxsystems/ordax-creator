@@ -557,6 +557,74 @@ def _owner_main_delivery_checkout() -> Path:
     return cache
 
 
+
+def inspect_canonical_dev_base(repo: Path, source_commit_sha: str) -> dict:
+    """Read-only binary availability via the OS-owned resolver, not another updater.
+
+    Run only for explicit Creator UI staging. The Git bundle transport already
+    proved that this disposable checkout is the canonical OS main.
+    """
+    if not isinstance(source_commit_sha, str) or not HEX40.fullmatch(source_commit_sha):
+        return {}
+    git_bin = shutil.which("git")
+    awk_bin = shutil.which("awk")
+    if not git_bin:
+        return {}
+    if not awk_bin and os.name == "nt":
+        # Git for Windows supplies the same awk language as the OS policy.
+        candidate = Path(git_bin).resolve().parent.parent / "usr" / "bin" / "awk.exe"
+        if candidate.is_file() and not candidate.is_symlink():
+            awk_bin = str(candidate)
+    if not awk_bin:
+        return {}
+
+    required = (
+        "system/services/base-update/dev_channel.py",
+        "system/services/base-update/dev-impact.awk",
+        "system/services/base-update/dev-helper-manifest.tsv",
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="ordax-canonical-base-probe-") as temporary:
+            working = Path(temporary)
+            for relative in required:
+                fetched = subprocess.run(
+                    [git_bin, "-C", str(repo), "show", "HEAD:" + relative],
+                    capture_output=True, timeout=20, check=True,
+                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                ).stdout
+                if not fetched or len(fetched) > (256 << 10):
+                    return {}
+                file = working / relative
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(fetched)
+
+            result = subprocess.run(
+                [
+                    sys.executable, "-I", str(working / required[0]),
+                    "--source-commit", source_commit_sha,
+                    "--compatible-worktree", str(repo),
+                    "--resolve-only", "--git-bin", git_bin, "--awk-bin", awk_bin,
+                ],
+                capture_output=True, timeout=90, check=False,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            )
+            if result.returncode != 0 or not 0 < len(result.stdout) <= 2048:
+                return {}
+            response = json.loads(result.stdout.decode("utf-8"))
+            artifact = response.get("source_commit")
+            if (response.get("status") != "resolved"
+                    or response.get("requested_source_commit") != source_commit_sha
+                    or not isinstance(artifact, str)
+                    or not HEX40.fullmatch(artifact)
+                    or response.get("exact_source") is not (artifact == source_commit_sha)):
+                return {}
+            return {"base_status": "AVAILABLE_NOT_STAGED",
+                    "base_artifact_commit": artifact}
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError,
+            subprocess.SubprocessError):
+        return {}
+
+
 def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
                         expected_disk_number: int | None = None) -> str | dict:
     """Reuse the single cached Git deliverer for the task and the Creator GUI."""
@@ -603,6 +671,8 @@ def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
     if from_creator_ui:
         if status == "SKIP_TRUSTED_USB_NOT_PRESENT":
             raise SyncError("selected Owner USB disappeared during staging")
+        # OS binary evidence is remote-only. Never gate already verified USB Git transport.
+        receipt.update(inspect_canonical_dev_base(main_repo, receipt["source_commit"]))
         return receipt
     return status
 

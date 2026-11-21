@@ -139,6 +139,25 @@ func TestOwnerUSBUpdateAcceptsOnlyVerifiedStagingReceipts(t *testing.T) {
             t.Fatalf("expected verified %s receipt: %+v %v", status, result, err)
         }
     }
+    available := ownerUSBReceipt{
+        Status: "CURRENT", SourceCommit: commit,
+        BaseStatus: "AVAILABLE_NOT_STAGED", BaseArtifactCommit: strings.Repeat("c", 40),
+    }
+    valid, _ := json.Marshal(available)
+    if read, err := parseOwnerUSBReceipt(valid); err != nil ||
+        read.BaseArtifactCommit != available.BaseArtifactCommit {
+        t.Fatalf("canonical remote Base candidate missing: %+v %v", read, err)
+    }
+    for _, invalid := range []ownerUSBReceipt{
+        {Status: "CURRENT", SourceCommit: commit, BaseStatus: "AVAILABLE_NOT_STAGED"},
+        {Status: "CURRENT", SourceCommit: commit, BaseArtifactCommit: commit},
+        {Status: "CURRENT", SourceCommit: commit, BaseStatus: "ACTIVATED", BaseArtifactCommit: commit},
+    } {
+        payload, _ := json.Marshal(invalid)
+        if _, err := parseOwnerUSBReceipt(payload); err == nil {
+            t.Fatalf("unverified Base status accepted: %+v", invalid)
+        }
+    }
     cases := []string{
         "{}", `{"status":"SKIP_TRUSTED_USB_NOT_PRESENT","source_commit":"` + commit + `"}`,
         `{"status":"STAGED_NOT_ACTIVATED","source_commit":"` + commit + `","sha256":"bad","bytes":10}`,
@@ -162,6 +181,13 @@ func TestOwnerUSBComponentSummaryDoesNotClaimExecutableInstallation(t *testing.T
                 t.Fatalf("missing %q in component evidence %q", expected, view)
             }
         }
+    }
+    view := ownerUSBComponentSummary(ownerUSBUpdateStatus{
+        Result: "CURRENT", SourceCommit: strings.Repeat("a", 40),
+        BaseStatus: "AVAILABLE_NOT_STAGED", BaseArtifactCommit: strings.Repeat("c", 40),
+    })
+    if !strings.Contains(view, "cccccccccccc") || !strings.Contains(view, "Base") {
+        t.Fatalf("available-only Base evidence is missing: %q", view)
     }
     for _, input := range []ownerUSBUpdateStatus{
         {Result: "AVAILABLE", SourceCommit: strings.Repeat("a", 40)},

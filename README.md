@@ -237,3 +237,19 @@ não substitui uma Base antiga que ainda não possui o consumidor do Supervisor.
 A ativação/rollback permanece exclusivamente no OS. Fora de um ambiente
 Owner Dev configurado, a atualização incremental é bloqueada, sem procurar
 Python ou scripts arbitrários nem introduzir um caminho público alternativo.
+
+## Consulta canônica de Base no fluxo Dev do Creator
+
+Durante uma atualização Git iniciada explicitamente na interface, o Creator
+consulta, somente para leitura, o resolvedor de Base do ordax-os
+(system/services/base-update/dev_channel.py, opção --resolve-only).
+O código, o manifesto de helpers e a política de impacto são extraídos
+do checkout main do OS já validado. Nenhum resolvedor de binários é
+reimplementado no Windows, e a tarefa automática não cria essa consulta.
+
+AVAILABLE_NOT_STAGED indica apenas um candidato publicado compatível e
+identificado remotamente. Não atesta transferência de kernel, initramfs,
+Base ou Surface ao USB, nem instalação, boot ou ativação. Falha nessa
+consulta opcional não desfaz nem invalida uma entrega Git já verificada.
+Nenhum pendrive é alterado por essa consulta; o OS conserva os gates
+de integridade, mídia física, saúde e promoção.

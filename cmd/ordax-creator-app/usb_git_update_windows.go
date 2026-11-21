@@ -26,6 +26,8 @@ type ownerUSBUpdateStatus struct {
     Result string
     Error string
     SourceCommit string
+    BaseStatus string
+    BaseArtifactCommit string
 }
 var (
     ownerUSBUpdateMu sync.Mutex
@@ -52,6 +54,8 @@ type ownerUSBReceipt struct {
     SourceCommit string `json:"source_commit"`
     SHA256 string `json:"sha256"`
     Bytes int64 `json:"bytes"`
+    BaseStatus string `json:"base_status,omitempty"`
+    BaseArtifactCommit string `json:"base_artifact_commit,omitempty"`
 }
 
 func ownerUSBUpdateInProgress() bool {
@@ -244,6 +248,15 @@ func parseOwnerUSBReceipt(data []byte) (ownerUSBReceipt, error) {
     default:
         return ownerUSBReceipt{}, errors.New("Owner USB transport did not confirm staging")
     }
+    // Published-remote-only evidence is not OS activation or USB binary staging.
+    if result.BaseStatus == "" {
+        if result.BaseArtifactCommit != "" {
+            return ownerUSBReceipt{}, errors.New("unbound Owner Base candidate identity")
+        }
+    } else if result.BaseStatus != "AVAILABLE_NOT_STAGED" ||
+        !validLowerHexString(result.BaseArtifactCommit, 40) {
+        return ownerUSBReceipt{}, errors.New("Owner Base candidate evidence is invalid")
+    }
     return result, nil
 }
 
@@ -368,6 +381,8 @@ func startOwnerUSBUpdate(target physicalTarget) {
         } else {
             ownerUSBUpdateResult.Result = receipt.Status
             ownerUSBUpdateResult.SourceCommit = receipt.SourceCommit
+            ownerUSBUpdateResult.BaseStatus = receipt.BaseStatus
+            ownerUSBUpdateResult.BaseArtifactCommit = receipt.BaseArtifactCommit
         }
         ownerUSBUpdateMu.Unlock()
         procPostMessageW.Call(mainWindow, wmAppUSBUpdateDone, 0, 0)
@@ -383,10 +398,17 @@ func ownerUSBComponentSummary(state ownerUSBUpdateStatus) string {
     if !validLowerHexString(state.SourceCommit, 40) {
         return ""
     }
+    baseEvidence := creatorT(msgUSBUpdateBaseEvidence)
+    if state.BaseStatus == "AVAILABLE_NOT_STAGED" &&
+        validLowerHexString(state.BaseArtifactCommit, 40) {
+        // This is a published remote candidate only; the translated Base
+        // and non-activation warnings remain visible.
+        baseEvidence += " (" + state.BaseArtifactCommit[:12] + ")"
+    }
     return strings.Join([]string{
         fmt.Sprintf(creatorT(msgUSBUpdateGitEvidence), state.SourceCommit[:12]),
         creatorT(msgUSBUpdateSurfaceEvidence),
-        creatorT(msgUSBUpdateBaseEvidence),
+        baseEvidence,
         creatorT(msgUSBUpdateNotActivated),
     }, "\n")
 }
