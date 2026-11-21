@@ -195,11 +195,15 @@ O aplicativo confere também o número do disco selecionado; não aceita uma
 segunda unidade com o mesmo rótulo e não escolhe automaticamente um destino.
 
 A interface entra no **mesmo sincronizador** `tools/owner_local_sync.py`
-com `--creator-ui-stage`. Esse modo reutiliza o cache exato da `main` e
-somente chama o transportador `tools/owner_usb_git_delivery.py`, sem tentar
-substituir o executável aberto. A tarefa agendada mantém seu comportamento
-de sincronizar o Creator quando ele estiver fechado; o modo de interface
-não cria serviço, segundo updater, segundo cache ou tarefa paralela.
+com `--creator-ui-stage`. Esse modo reutiliza o cache exato da `main`,
+prepara o Git e, quando o OS comprova uma Base publicada compatível, usa
+o **mesmo** transportador `tools/owner_usb_git_delivery.py` para copiar
+o candidato binário verificado para `ORDAX-DATA`, sem atualizar o boot.
+Não substitui o executável aberto. A tarefa agendada mantém seu
+comportamento de sincronizar o Creator quando ele estiver fechado;
+o modo de interface não cria serviço, segundo updater ou segundo
+checkout de código. O cache de binários `owner-base-delivery` apenas
+reutiliza os bytes autenticados pelo adquiridor canônico do OS.
 A preparação Git do cache compartilhado fica serializada entre GUI e tarefa
 pelo bloqueio nativo `owner-main-delivery.lock`, mantido durante o transporte.
 O bloqueio físico `owner-usb-git.lock` já existente permanece como autoridade
@@ -238,18 +242,35 @@ A ativação/rollback permanece exclusivamente no OS. Fora de um ambiente
 Owner Dev configurado, a atualização incremental é bloqueada, sem procurar
 Python ou scripts arbitrários nem introduzir um caminho público alternativo.
 
-## Consulta canônica de Base no fluxo Dev do Creator
+## Base DEV no Creator Windows — aquisição e transporte sem ativação
 
-Durante uma atualização Git iniciada explicitamente na interface, o Creator
-consulta, somente para leitura, o resolvedor de Base do ordax-os
-(system/services/base-update/dev_channel.py, opção --resolve-only).
-O código, o manifesto de helpers e a política de impacto são extraídos
-do checkout main do OS já validado. Nenhum resolvedor de binários é
-reimplementado no Windows, e a tarefa automática não cria essa consulta.
+A ação de preparo do pendrive conserva o fluxo Git existente e, somente
+quando o OS identifica uma Base compatível, usa o **mesmo código**
+`ordax-os/system/services/base-update/dev_channel.py` extraído de `main`.
+`--resolve-only` compara o SHA solicitado com as tags publicadas e a política
+única de impacto. `--acquire-only` recebe os quatro arquivos binários sob
+SHA-256 e limites do produtor: `dev-base.json`, `vmlinuz`, `initrd.gz`,
+`rootfs.tar`. A aquisição é nativa do Windows; sem WSL, distro auxiliar
+nem reimplementação do resolvedor.
 
-AVAILABLE_NOT_STAGED indica apenas um candidato publicado compatível e
-identificado remotamente. Não atesta transferência de kernel, initramfs,
-Base ou Surface ao USB, nem instalação, boot ou ativação. Falha nessa
-consulta opcional não desfaz nem invalida uma entrega Git já verificada.
-Nenhum pendrive é alterado por essa consulta; o OS conserva os gates
-de integridade, mídia física, saúde e promoção.
+O Creator valida o serial, número do disco, GPT, volume e espaço disponível;
+sua única escrita é em `ORDAX-DATA` sob o mesmo mutex físico
+`owner-usb-git.lock`. `--import-only` do OS publica o candidato imutável em
+`.ordax/updates/owner-base/<artifact_sha>` somente depois do readback,
+sem sobrescrever uma revisão existente. O recipiente mostra
+`STAGED_NOT_ACTIVATED` somente para os arquivos Base efetivamente
+copiados e verificados. `AVAILABLE_NOT_STAGED` significa que a Base está
+publicada, mas a cópia ainda não foi comprovada ou não coube na mídia.
+Os recibos do Git são independentes dos da Base; a tarefa agendada continua
+responsável apenas pelo transporte Git não ativador.
+
+**Não há promessa de instalação:** essa transferência não altera ESP, ext4,
+EFI, slots A/B, Kernel executado, Surface nem o estado de saúde.
+O USB Owner Dev preparado possui apenas 1 GiB de `ORDAX-DATA`, podendo não
+comportar os artefatos publicados. O OS precisa consumir o candidato no boot
+por seu mecanismo único de update/rollback, e uma Base antiga não recebe
+esse consumidor só porque a partição exFAT tem novos arquivos. A missão
+`conectar, clicar e inicializar o notebook já atualizado` só pode ser
+declarada concluída após prova física de boot, readback da versão ativa,
+Wi-Fi e reversão de uma candidata inválida. Não é permitido transformar
+transporte em ativação pelo texto da interface.
