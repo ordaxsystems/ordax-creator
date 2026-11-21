@@ -413,7 +413,9 @@ func renderOwnerUSBUpdateDone() {
             setCreatorStatus(creatorT(msgUSBUpdateComplete))
         }
         setCreatorHint(ownerUSBComponentSummary(state))
-        setProgressComplete()
+        // Only the Git transport finished. There is no OS activation proof,
+        // so a full-system 100% progress indication would be misleading.
+        setProgressIdle()
     }
     enable(localeCombo, true)
     enable(refreshButton, true)
