@@ -473,6 +473,17 @@ def _owner_main_delivery_checkout() -> Path:
         if run_git("-C", str(path), "status", "--porcelain=v1"):
             raise SyncError("Owner main cache contains uncommitted changes")
 
+    def remove_disposable_cache(path: Path) -> None:
+        # Git for Windows marks pack files read-only. Only known disposable
+        # transport caches are removed here, never the developer's checkout.
+        def retry_readonly(operation, filename, exc_info):
+            if (not isinstance(exc_info[1], PermissionError)
+                    or Path(filename).is_symlink()):
+                raise exc_info[1]
+            os.chmod(filename, 0o700)
+            operation(filename)
+        shutil.rmtree(path, onerror=retry_readonly)
+
     def borrowed(path: Path) -> bool:
         gitdir = path / ".git"
         return (os.path.lexists(gitdir / "objects/info/alternates")
@@ -491,7 +502,7 @@ def _owner_main_delivery_checkout() -> Path:
             check_checkout(cache)
             if borrowed(cache):
                 raise SyncError("Owner main cache cutover is ambiguous")
-            shutil.rmtree(retired)
+            remove_disposable_cache(retired)
 
     if cache.exists():
         check_checkout(cache)
@@ -508,7 +519,12 @@ def _owner_main_delivery_checkout() -> Path:
                     "--no-checkout", REPO_URL, str(pending), timeout=300)
             run_git("-C", str(pending), "sparse-checkout", "init", "--cone")
             run_git("-C", str(pending), "sparse-checkout", "set", "bootstrap/dev-base")
+            # --no-checkout leaves the initial index empty on Git for
+            # Windows. Materialize only this newly cloned disposable tree.
+            run_git("-C", str(pending), "reset", "--hard", "HEAD")
             check_checkout(pending)
+            if run_git("-C", str(pending), "branch", "--show-current") != "main":
+                raise SyncError("new Owner main cache is not on main")
             if borrowed(pending):
                 raise SyncError("new Owner main cache lacks independent Git objects")
             if cache.exists():
@@ -521,10 +537,10 @@ def _owner_main_delivery_checkout() -> Path:
                     retired.rename(cache)
                 raise
             if retired.exists():
-                shutil.rmtree(retired)
+                remove_disposable_cache(retired)
         finally:
             if pending.exists():
-                shutil.rmtree(pending)
+                remove_disposable_cache(pending)
         # The writer independently confirms the canonical remote main SHA.
         return cache
 
