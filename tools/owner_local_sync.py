@@ -8,6 +8,7 @@ as a unit, only after digest, provenance and offline executable smoke checks.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -388,6 +389,62 @@ def sync(root: Path, *, check_only: bool = False) -> str:
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
+@contextmanager
+def owner_usb_stage_gate(wait_seconds: float):
+    """Serialize the one Git-main cache across Creator UI and scheduled task.
+
+    This lock protects the cache checkout through transport execution. The
+    existing delivery lock still independently protects the physical USB.
+    """
+    if os.name != "nt":
+        yield True
+        return
+    import msvcrt
+    root = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "OrdaX-Creator"
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = root / "owner-main-delivery.lock"
+    if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+        raise SyncError("Owner main staging lock path is unsafe")
+    deadline = time.monotonic() + wait_seconds
+    with path.open("a+b") as handle:
+        while True:
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    if wait_seconds == 0:
+                        yield False
+                        return
+                    raise SyncError("Owner Git staging remains busy; try on the next cycle") from exc
+                time.sleep(min(1.0, max(0, deadline - time.monotonic())))
+        try:
+            yield True
+        finally:
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def run_owner_usb_transport(command: list[str], *, from_creator_ui: bool):
+    """Retry only a proven transient writer mutex collision, never an invalid USB."""
+    busy = "OWNER_USB_GIT_DELIVERY=BLOCKED:Owner USB transport already running"
+    deadline = time.monotonic() + (60.0 if from_creator_ui else 0.0)
+    while True:
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True,
+                                       timeout=300, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise SyncError("bounded Owner USB Git staging failed") from exc
+        if completed.returncode != 2 or completed.stderr.strip() != busy:
+            return completed
+        if not from_creator_ui:
+            return None  # Scheduled task will retry on its existing cadence.
+        if time.monotonic() >= deadline:
+            raise SyncError("Owner USB writer remained busy beyond the bounded wait")
+        time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
+
+
 def _owner_main_delivery_checkout(os_repo: Path) -> Path:
     """Prepare one cached exact-main checkout without changing active work."""
     canonical = "https://github.com/ordaxsystems/ordax-os.git"
@@ -456,18 +513,20 @@ def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
     os_repo = Path(__file__).resolve().parents[2] / "ordax-os"
     if not delivery.is_file() or not (os_repo / ".git").is_dir():
         raise SyncError("canonical Owner Git deliverer or OS checkout unavailable")
-    main_repo = _owner_main_delivery_checkout(os_repo)
-    command = [sys.executable, str(delivery), "--repo", str(main_repo),
-               "--auto-volume", "--trusted-serial", expected_serial, "--apply"]
-    if expected_disk_number is not None:
-        if type(expected_disk_number) is not int or expected_disk_number < 0:
-            raise SyncError("invalid selected USB disk number")
-        command += ["--trusted-disk-number", str(expected_disk_number)]
-    try:
-        completed = subprocess.run(command, capture_output=True, text=True,
-                                   timeout=300, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise SyncError("bounded Owner USB Git staging failed") from exc
+    if expected_disk_number is not None and (
+            type(expected_disk_number) is not int or expected_disk_number < 0):
+        raise SyncError("invalid selected USB disk number")
+    with owner_usb_stage_gate(60.0 if from_creator_ui else 0.0) as acquired:
+        if not acquired:
+            return "DEFERRED_OWNER_GIT_BUSY"
+        main_repo = _owner_main_delivery_checkout(os_repo)
+        command = [sys.executable, str(delivery), "--repo", str(main_repo),
+                   "--auto-volume", "--trusted-serial", expected_serial, "--apply"]
+        if expected_disk_number is not None:
+            command += ["--trusted-disk-number", str(expected_disk_number)]
+        completed = run_owner_usb_transport(command, from_creator_ui=from_creator_ui)
+    if completed is None:
+        return "DEFERRED_USB_TRANSPORT_BUSY"
     if completed.returncode:
         raise SyncError("Owner USB Git staging blocked: " + completed.stderr.strip()[-350:])
     try:

@@ -180,8 +180,16 @@ somente chama o transportador `tools/owner_usb_git_delivery.py`, sem tentar
 substituir o executável aberto. A tarefa agendada mantém seu comportamento
 de sincronizar o Creator quando ele estiver fechado; o modo de interface
 não cria serviço, segundo updater, segundo cache ou tarefa paralela.
-Ambas as entradas usam o mesmo bloqueio do Windows, com exclusão mútua, e
-retornam recibos `CURRENT` ou `STAGED_NOT_ACTIVATED`. A interface aceita um
+A preparação Git do cache compartilhado fica serializada entre GUI e tarefa
+pelo bloqueio nativo `owner-main-delivery.lock`, mantido durante o transporte.
+O bloqueio físico `owner-usb-git.lock` já existente permanece como autoridade
+única de escrita do USB, inclusive para chamadas diretas ao transportador.
+Conflitos momentâneos são aguardados de forma limitada na interface; a tarefa
+agendada adia a tentativa para seu próximo ciclo. **Somente** contenção de
+mutex permite repetição: serial, disco, origem, SHA ou volume inválidos nunca
+são repetidos como se fossem conflitos transitórios.
+As entradas devolvem recibos `CURRENT` ou `STAGED_NOT_ACTIVATED` após
+conclusão efetiva; uma espera vencida não é anunciada como atualização. A interface aceita um
 Creator cuja revisão esteja comprovadamente na ancestralidade da `main`
 atual, sem exigir que o EXE já incorpore toda alteração posterior do Git;
 a implementação local permanece limpa e exatamente igual à `main` remota. O único escritor valida o GitHub `main`, GPT,
