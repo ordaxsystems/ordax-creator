@@ -177,3 +177,17 @@ func TestOwnerUSBComponentSummaryDoesNotClaimExecutableInstallation(t *testing.T
         }
     }
 }
+
+func TestOwnerUSBStagingPresentationNeverClaimsOSActivated(t *testing.T) {
+    for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+        current := strings.ToLower(creatorMessageFor(locale, msgUSBUpdateCurrent, nil))
+        staged := strings.ToLower(creatorMessageFor(locale, msgUSBUpdateComplete, nil))
+        if locale == creatorLocalePTBR {
+            if !strings.Contains(current, "não verificado") || !strings.Contains(staged, "não atualizado") {
+                t.Fatalf("Portuguese Git staging must not be reported as OS activation: %q / %q", current, staged)
+            }
+        } else if !strings.Contains(current, "unverified") || !strings.Contains(staged, "not updated") {
+            t.Fatalf("English Git staging must not be reported as OS activation: %q / %q", current, staged)
+        }
+    }
+}
