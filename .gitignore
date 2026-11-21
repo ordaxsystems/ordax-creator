@@ -25,3 +25,7 @@ coverage/
 .os-contracts/
 .tmp/
 .cache/
+
+# Python runtime bytecode is not a source edit (Owner Dev task uses Python).
+__pycache__/
+*.py[cod]

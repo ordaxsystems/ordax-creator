@@ -78,7 +78,7 @@ func ownerUSBSelectedTarget(state appRefreshState, index int) (physicalTarget, e
 }
 
 func ownerUSBTransportFromTask(task ownerUSBTaskInfo, target physicalTarget, executable string) (ownerUSBTransport, error) {
-    if task.State != "Ready" || task.Concurrency != "IgnoreNew" {
+    if (task.State != "Ready" && task.State != "Running") || task.Concurrency != "IgnoreNew" {
         return ownerUSBTransport{}, errors.New("canonical Owner Dev synchronizer is busy or not protected")
     }
     if !strings.EqualFold(filepath.Base(task.Executable), "python.exe") || !filepath.IsAbs(task.Executable) {
@@ -332,9 +332,39 @@ func executeOwnerUSBTransport(target physicalTarget) (ownerUSBReceipt, error) {
     // scheduled task. Neither this GUI nor the Python helper activates OS.
     output, err := cmd.Output()
     if err != nil {
-        return ownerUSBReceipt{}, errors.New("Owner USB staging failed; no boot partition was written")
+        return ownerUSBReceipt{}, ownerUSBTransportFailure(err)
     }
     return parseOwnerUSBReceipt(output)
+}
+
+// Retain a bounded, single-line diagnostic from the one authorized transport.
+// ExitError.Stderr belongs to the existing task, not an arbitrary executable.
+// Never report staging failures as successful USB activation.
+func ownerUSBTransportFailure(err error) error {
+    var exit *exec.ExitError
+    if !errors.As(err, &exit) {
+        return errors.New("Falha ao iniciar o sincronizador autorizado do pendrive")
+    }
+    detail := string(exit.Stderr)
+    const marker = "OWNER_DEV_USB_GIT_STAGE=BLOCKED:"
+    if i := strings.LastIndex(detail, marker); i >= 0 {
+        detail = detail[i+len(marker):]
+    } else {
+        return errors.New("Sincronizador recusou a operação sem diagnóstico válido")
+    }
+    detail = strings.TrimSpace(detail)
+    if i := strings.IndexAny(detail, "\r\n"); i >= 0 {
+        detail = detail[:i]
+    }
+    if detail == "" || len(detail) > 350 {
+        return errors.New("Sincronizador recusou a operação; diagnóstico ausente ou extenso")
+    }
+    for _, ch := range detail {
+        if ch < 32 || ch == 127 {
+            return errors.New("Sincronizador recusou a operação; diagnóstico inválido")
+        }
+    }
+    return errors.New("Sincronizador bloqueou a atualização: " + detail)
 }
 
 func beginOwnerUSBUpdate() {
@@ -420,7 +450,7 @@ func renderOwnerUSBUpdateDone() {
     if state.Active || (state.Result == "" && state.Error == "") { return }
     if state.Error != "" {
         setCreatorStatus(creatorT(msgUSBUpdateFailed))
-        setCreatorHint(creatorT(msgUSBUpdateBlocked))
+        setCreatorHint(state.Error)
         setProgressIdle()
     } else {
         if state.Result == "CURRENT" {

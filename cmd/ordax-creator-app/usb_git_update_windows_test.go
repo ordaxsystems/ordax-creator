@@ -5,6 +5,8 @@ package main
 import (
     "encoding/json"
     "os"
+    "os/exec"
+    "errors"
     "path/filepath"
     "strings"
     "testing"
@@ -80,8 +82,12 @@ func TestOwnerUSBTaskReusesCanonicalInstalledTransport(t *testing.T) {
     }
     task.Arguments = strings.Replace(task.Arguments, "UNTRUSTED", "6699E36B", 1)
     task.State = "Running"
+    if _, err := ownerUSBTransportFromTask(task, testOwnerUSBTarget(), app); err != nil {
+        t.Fatalf("running scheduled task must share the existing lock: %v", err)
+    }
+    task.State = "Disabled"
     if _, err := ownerUSBTransportFromTask(task, testOwnerUSBTarget(), app); err == nil {
-        t.Fatal("running scheduled task accepted")
+        t.Fatal("disabled scheduled task accepted")
     }
 }
 
@@ -276,6 +282,31 @@ func TestOwnerUSBGitStageMatchesPinnedOSUpdateCoverage(t *testing.T) {
         action := strings.ToLower(creatorMessageFor(locale, msgUSBUpdateAction, nil))
         if !strings.Contains(action, "git") {
             t.Fatalf("Git-only Creator action must identify its real scope: %q", action)
+        }
+    }
+}
+
+
+// The UI must surface the physical synchronizer's real blocking reason rather
+// than claiming that a staged Git bundle was an OS install.
+func TestOwnerUSBFailureRetainsBoundedSpecificDiagnostic(t *testing.T) {
+    msg := "OWNER_DEV_USB_GIT_STAGE=BLOCKED:USB serial differs from locally authorized device"
+    err := ownerUSBTransportFailure(&exec.ExitError{Stderr: []byte(msg + "\n")})
+    if !strings.Contains(err.Error(), "USB serial differs") {
+        t.Fatalf("physical identity cause was hidden: %v", err)
+    }
+    if got := ownerUSBTransportFailure(errors.New("process launch failed")); !strings.Contains(got.Error(), "iniciar") {
+        t.Fatalf("launch error not differentiated: %v", got)
+    }
+    for _, bad := range []string{
+        "untrusted raw error",
+        "OWNER_DEV_USB_GIT_STAGE=BLOCKED:",
+        "OWNER_DEV_USB_GIT_STAGE=BLOCKED:" + strings.Repeat("x", 351),
+        "OWNER_DEV_USB_GIT_STAGE=BLOCKED:invalid\x00data",
+    } {
+        got := ownerUSBTransportFailure(&exec.ExitError{Stderr: []byte(bad)})
+        if strings.Contains(got.Error(), "x00") || len(got.Error()) > 180 {
+            t.Fatalf("unbounded or unsafe UI error: %q", got)
         }
     }
 }
