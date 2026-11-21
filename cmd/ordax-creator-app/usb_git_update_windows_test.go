@@ -154,6 +154,16 @@ func TestOwnerUSBUpdateAcceptsOnlyVerifiedStagingReceipts(t *testing.T) {
         read.BaseArtifactCommit != available.BaseArtifactCommit {
         t.Fatalf("canonical remote Base candidate missing: %+v %v", read, err)
     }
+    stagedBase := ownerUSBReceipt{
+        Status: "STAGED_NOT_ACTIVATED", SourceCommit: commit,
+        SHA256: strings.Repeat("b", 64), Bytes: 28163491,
+        BaseStatus: "STAGED_NOT_ACTIVATED", BaseArtifactCommit: strings.Repeat("c", 40),
+    }
+    stagedData, _ := json.Marshal(stagedBase)
+    if got, err := parseOwnerUSBReceipt(stagedData); err != nil ||
+        got.BaseStatus != "STAGED_NOT_ACTIVATED" {
+        t.Fatalf("verified Base copy not accepted: %+v %v", got, err)
+    }
     for _, invalid := range []ownerUSBReceipt{
         {Status: "CURRENT", SourceCommit: commit, BaseStatus: "AVAILABLE_NOT_STAGED"},
         {Status: "CURRENT", SourceCommit: commit, BaseArtifactCommit: commit},
@@ -195,6 +205,14 @@ func TestOwnerUSBComponentSummaryDoesNotClaimExecutableInstallation(t *testing.T
     if !strings.Contains(view, "cccccccccccc") || !strings.Contains(view, "Base") ||
         !strings.Contains(view, "não transferida") {
         t.Fatalf("available-only Base evidence is missing: %q", view)
+    }
+    stagedView := ownerUSBComponentSummary(ownerUSBUpdateStatus{
+        Result: "CURRENT", SourceCommit: strings.Repeat("a", 40),
+        BaseStatus: "STAGED_NOT_ACTIVATED", BaseArtifactCommit: strings.Repeat("c", 40),
+    })
+    if !strings.Contains(stagedView, "arquivos verificados") ||
+        !strings.Contains(stagedView, "boot não atualizado") {
+        t.Fatalf("physical Base transport misreported as boot activation: %q", stagedView)
     }
     for _, input := range []ownerUSBUpdateStatus{
         {Result: "AVAILABLE", SourceCommit: strings.Repeat("a", 40)},

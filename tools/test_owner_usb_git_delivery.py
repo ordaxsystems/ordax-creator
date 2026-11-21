@@ -1,6 +1,7 @@
 """Targeted non-destructive tests for Owner USB Git transfer."""
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -229,6 +230,70 @@ class DeliveryTests(unittest.TestCase):
                 APP.enforce_selected_disk({"disk": 1}, bad)
         with self.assertRaisesRegex(APP.DeliveryError, "disk number"):
             APP.enforce_selected_disk({"disk": "1"}, 1)
+
+class BaseMediaBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.volume = root / "data"
+        self.volume.mkdir()
+        self.sha = "b" * 40
+        self.candidate = root / self.sha
+        self.candidate.mkdir()
+        for name in APP.BASE_FILES:
+            (self.candidate / name).write_bytes(b"test:" + name.encode())
+        self.script = root / "dev_channel.py"
+        self.script.write_text("# exact OS-owned helper test", encoding="utf-8")
+        self.before = {"disk": 1, "serial": "6699E36B"}
+        self.args = __import__("argparse").Namespace(
+            apply=True, inspect=False, repo=None,
+            base_candidate_dir=self.candidate,
+            canonical_base_script=self.script, base_artifact_commit=self.sha,
+        )
+
+    def test_base_copy_invokes_os_import_only_and_checks_exact_device_twice(self):
+        receipt = json.dumps({
+            "status": "imported-not-activated", "source_commit": self.sha,
+            "path": str(self.volume / APP.BASE_SUBDIR / self.sha), "reused": False,
+        }).encode()
+        with (
+            mock.patch.object(APP, "checked_volume", return_value=self.before) as identity,
+            mock.patch.object(APP.subprocess, "run",
+                              return_value=subprocess.CompletedProcess([], 0, stdout=receipt)) as run,
+        ):
+            result = APP.stage_canonical_base(self.args, self.volume, "E", self.before)
+        self.assertEqual(result["status"], "BASE_STAGED_NOT_ACTIVATED")
+        self.assertEqual(identity.call_count, 2)
+        command = run.call_args.args[0]
+        self.assertEqual(command[1], "-I")
+        self.assertIn("--import-only", command)
+        self.assertNotIn("--resolve-only", command)
+        self.assertNotIn("--ready-pair", command)
+        self.assertEqual(command[command.index("--destination-root")+1],
+                         str(self.volume / APP.BASE_SUBDIR))
+        self.assertEqual(command[command.index("--source-commit")+1], self.sha)
+
+    def test_base_copy_fails_closed_on_device_or_receipt_mismatch(self):
+        with (
+            mock.patch.object(APP, "checked_volume", return_value={"disk": 2}) as _identity,
+            mock.patch.object(APP.subprocess, "run") as run,
+        ):
+            with self.assertRaisesRegex(APP.DeliveryError, "identity changed"):
+                APP.stage_canonical_base(self.args, self.volume, "E", self.before)
+            run.assert_not_called()
+        untrusted = json.dumps({
+            "status": "imported-not-activated", "source_commit": "f" * 40,
+            "path": str(self.volume / APP.BASE_SUBDIR / self.sha), "reused": False,
+        }).encode()
+        with (
+            mock.patch.object(APP, "checked_volume", return_value=self.before),
+            mock.patch.object(APP.subprocess, "run",
+                              return_value=subprocess.CompletedProcess([], 0, stdout=untrusted)),
+        ):
+            with self.assertRaisesRegex(APP.DeliveryError, "did not attest"):
+                APP.stage_canonical_base(self.args, self.volume, "E", self.before)
+
 
 class WindowsBoundedGitTests(unittest.TestCase):
     @unittest.skipUnless(__import__("os").name == "nt", "native Windows Job Object")

@@ -451,6 +451,55 @@ class LocalSyncTests(unittest.TestCase):
         fetch.assert_not_called()
         transport.assert_not_called()
 
+    def test_creator_base_transfer_reuses_pinned_os_policy_and_selected_disk(self):
+        import os
+        import subprocess
+        requested, artifact = "a" * 40, "b" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = root / "dev_channel.py"
+            script.write_text("fixture", encoding="utf-8")
+            commands = []
+            cache = root / "OrdaX-Creator" / "owner-base-delivery" / artifact
+
+            def run(argv, **kwargs):
+                commands.append(argv)
+                if "--acquire-only" in argv:
+                    return {
+                        "status": "acquired",
+                        "source_commit": artifact,
+                        "requested_source_commit": requested,
+                        "path": str(cache),
+                        "reused": False,
+                    }
+                self.assertIn("--base-candidate-dir", argv)
+                self.assertIn("--trusted-disk-number", argv)
+                self.assertEqual(argv[argv.index("--trusted-disk-number")+1], "1")
+                return {
+                    "status": "BASE_STAGED_NOT_ACTIVATED",
+                    "base_artifact_commit": artifact,
+                    "reused": False,
+                }
+
+            with (
+                mock.patch.dict(os.environ, {"LOCALAPPDATA": str(root)}),
+                mock.patch.object(SYNC, "_export_canonical_base_policy",
+                                  return_value=(script, "git", "awk")),
+                mock.patch.object(SYNC, "_run_canonical_base_child", side_effect=run),
+            ):
+                self.assertEqual(
+                    SYNC.stage_canonical_base_for_creator(
+                        root, requested, artifact, "6699E36B", 1,
+                    ),
+                    {"base_status": "STAGED_NOT_ACTIVATED",
+                     "base_artifact_commit": artifact},
+                )
+            self.assertEqual(len(commands), 2)
+            self.assertIn("--compatible-worktree", commands[0])
+            self.assertIn("--acquire-only", commands[0])
+            self.assertIn("--import-only", ["--import-only", *commands[1]])
+            self.assertIn("--canonical-base-script", commands[1])
+
     def test_usb_is_prepared_before_creator_release_network_check(self):
         events = []
         with (

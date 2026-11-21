@@ -558,6 +558,37 @@ def _owner_main_delivery_checkout() -> Path:
 
 
 
+def _export_canonical_base_policy(repo: Path, directory: Path) -> tuple[Path, str, str]:
+    """Export only the OS-owned Base policy at the cached canonical Git HEAD."""
+    git_bin = shutil.which("git")
+    awk_bin = shutil.which("awk")
+    if not git_bin:
+        raise SyncError("canonical Git executable unavailable")
+    if not awk_bin and os.name == "nt":
+        candidate = Path(git_bin).resolve().parent.parent / "usr" / "bin" / "awk.exe"
+        if candidate.is_file() and not candidate.is_symlink():
+            awk_bin = str(candidate)
+    if not awk_bin:
+        raise SyncError("canonical Base impact policy interpreter unavailable")
+    paths = (
+        "system/services/base-update/dev_channel.py",
+        "system/services/base-update/dev-impact.awk",
+        "system/services/base-update/dev-helper-manifest.tsv",
+    )
+    for relative in paths:
+        fetched = subprocess.run(
+            [git_bin, "-C", str(repo), "show", "HEAD:" + relative],
+            capture_output=True, timeout=8, check=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        ).stdout
+        if not fetched or len(fetched) > (256 << 10):
+            raise SyncError("OS Base source missing or oversized")
+        output = directory / relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(fetched)
+    return directory / paths[0], git_bin, awk_bin
+
+
 def inspect_canonical_dev_base(repo: Path, source_commit_sha: str) -> dict:
     """Read-only binary availability via the OS-owned resolver, not another updater.
 
@@ -566,41 +597,12 @@ def inspect_canonical_dev_base(repo: Path, source_commit_sha: str) -> dict:
     """
     if not isinstance(source_commit_sha, str) or not HEX40.fullmatch(source_commit_sha):
         return {}
-    git_bin = shutil.which("git")
-    awk_bin = shutil.which("awk")
-    if not git_bin:
-        return {}
-    if not awk_bin and os.name == "nt":
-        # Git for Windows supplies the same awk language as the OS policy.
-        candidate = Path(git_bin).resolve().parent.parent / "usr" / "bin" / "awk.exe"
-        if candidate.is_file() and not candidate.is_symlink():
-            awk_bin = str(candidate)
-    if not awk_bin:
-        return {}
-
-    required = (
-        "system/services/base-update/dev_channel.py",
-        "system/services/base-update/dev-impact.awk",
-        "system/services/base-update/dev-helper-manifest.tsv",
-    )
     try:
         with tempfile.TemporaryDirectory(prefix="ordax-canonical-base-probe-") as temporary:
-            working = Path(temporary)
-            for relative in required:
-                fetched = subprocess.run(
-                    [git_bin, "-C", str(repo), "show", "HEAD:" + relative],
-                    capture_output=True, timeout=8, check=True,
-                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-                ).stdout
-                if not fetched or len(fetched) > (256 << 10):
-                    return {}
-                file = working / relative
-                file.parent.mkdir(parents=True, exist_ok=True)
-                file.write_bytes(fetched)
-
+            script, git_bin, awk_bin = _export_canonical_base_policy(repo, Path(temporary))
             result = subprocess.run(
                 [
-                    sys.executable, "-I", str(working / required[0]),
+                    sys.executable, "-I", str(script),
                     "--source-commit", source_commit_sha,
                     "--compatible-worktree", str(repo),
                     "--resolve-only", "--git-bin", git_bin, "--awk-bin", awk_bin,
@@ -620,9 +622,75 @@ def inspect_canonical_dev_base(repo: Path, source_commit_sha: str) -> dict:
                 return {}
             return {"base_status": "AVAILABLE_NOT_STAGED",
                     "base_artifact_commit": artifact}
-    except (OSError, ValueError, UnicodeError, json.JSONDecodeError,
+    except (SyncError, OSError, ValueError, UnicodeError, json.JSONDecodeError,
             subprocess.SubprocessError):
         return {}
+
+
+def _run_canonical_base_child(command: list[str], timeout: int) -> dict:
+    """OS-owned Base subcommands stay in a native kill-on-close Windows Job."""
+    try:
+        if os.name == "nt":
+            from owner_usb_git_delivery import _windows_git_job
+            stdout = _windows_git_job(command, timeout)
+        else:
+            done = subprocess.run(
+                command, capture_output=True, timeout=timeout, check=True,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            )
+            stdout = done.stdout.decode("utf-8")
+        if not 0 < len(stdout) <= 4096:
+            raise SyncError("canonical Base child returned invalid receipt size")
+        value = json.loads(stdout)
+        if not isinstance(value, dict):
+            raise SyncError("canonical Base child did not return a JSON object")
+        return value
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
+        raise SyncError("canonical Base child failed or timed out") from exc
+
+
+def stage_canonical_base_for_creator(
+    repo: Path, requested: str, artifact: str, serial: str, disk: int,
+) -> dict:
+    """Acquire via OS policy; use existing authorized USB writer for transport."""
+    if (not HEX40.fullmatch(requested) or not HEX40.fullmatch(artifact)
+            or type(disk) is not int or disk < 0):
+        raise SyncError("invalid exact development Base identity")
+    root = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "OrdaX-Creator"
+    if root.is_symlink() or (hasattr(root, "is_junction") and root.is_junction()):
+        raise SyncError("Owner Base cache path is linked")
+    root.mkdir(parents=True, exist_ok=True)
+    cache = root / "owner-base-delivery"
+    if cache.is_symlink() or (hasattr(cache, "is_junction") and cache.is_junction()):
+        raise SyncError("Owner Base cache is linked")
+    with tempfile.TemporaryDirectory(prefix="ordax-canonical-base-transfer-") as tmp:
+        script, git_bin, awk_bin = _export_canonical_base_policy(repo, Path(tmp))
+        receipt = _run_canonical_base_child(
+            [sys.executable, "-I", str(script), "--source-commit", requested,
+             "--compatible-worktree", str(repo), "--destination-root", str(cache),
+             "--acquire-only", "--git-bin", git_bin, "--awk-bin", awk_bin],
+            timeout=600,
+        )
+        source = cache / artifact
+        if (receipt.get("status") != "acquired"
+                or receipt.get("source_commit") != artifact
+                or receipt.get("requested_source_commit") != requested
+                or receipt.get("path") != str(source)
+                or type(receipt.get("reused")) is not bool):
+            raise SyncError("Base acquisition does not match source binding")
+        writer = Path(__file__).with_name("owner_usb_git_delivery.py")
+        command = [sys.executable, str(writer), "--auto-volume",
+                   "--trusted-serial", serial, "--trusted-disk-number", str(disk),
+                   "--base-candidate-dir", str(source),
+                   "--canonical-base-script", str(script),
+                   "--base-artifact-commit", artifact, "--apply"]
+        result = _run_canonical_base_child(command, timeout=660)
+        if (result.get("status") != "BASE_STAGED_NOT_ACTIVATED"
+                or result.get("base_artifact_commit") != artifact
+                or type(result.get("reused")) is not bool):
+            raise SyncError("USB Base transfer did not pass OS readback")
+        return {"base_status": "STAGED_NOT_ACTIVATED",
+                "base_artifact_commit": artifact}
 
 
 def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
@@ -671,8 +739,24 @@ def stage_owner_usb_dev(expected_serial: str, *, from_creator_ui: bool = False,
     if from_creator_ui:
         if status == "SKIP_TRUSTED_USB_NOT_PRESENT":
             raise SyncError("selected Owner USB disappeared during staging")
-        # OS binary evidence is remote-only. Never gate already verified USB Git transport.
-        receipt.update(inspect_canonical_dev_base(main_repo, receipt["source_commit"]))
+        evidence = inspect_canonical_dev_base(main_repo, receipt["source_commit"])
+        if evidence:
+            try:
+                evidence = stage_canonical_base_for_creator(
+                    main_repo, receipt["source_commit"],
+                    evidence["base_artifact_commit"], expected_serial,
+                    expected_disk_number,
+                )
+            except (SyncError, OSError, ValueError, subprocess.SubprocessError):
+                # Never claim Base transferred when only its release exists.
+                evidence = {"base_status": "AVAILABLE_NOT_STAGED",
+                            "base_artifact_commit": evidence["base_artifact_commit"]}
+        # Binary acquisition may be long. The Git transport checked main
+        # before it finished; verify again before promising a current result.
+        from owner_usb_git_delivery import source_commit
+        if source_commit(main_repo) != receipt["source_commit"]:
+            raise SyncError("canonical OS main changed during Base acquisition")
+        receipt.update(evidence)
         return receipt
     return status
 

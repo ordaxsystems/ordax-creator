@@ -253,7 +253,8 @@ func parseOwnerUSBReceipt(data []byte) (ownerUSBReceipt, error) {
         if result.BaseArtifactCommit != "" {
             return ownerUSBReceipt{}, errors.New("unbound Owner Base candidate identity")
         }
-    } else if result.BaseStatus != "AVAILABLE_NOT_STAGED" ||
+    } else if (result.BaseStatus != "AVAILABLE_NOT_STAGED" &&
+               result.BaseStatus != "STAGED_NOT_ACTIVATED") ||
         !validLowerHexString(result.BaseArtifactCommit, 40) {
         return ownerUSBReceipt{}, errors.New("Owner Base candidate evidence is invalid")
     }
@@ -310,7 +311,7 @@ func executeOwnerUSBTransport(target physicalTarget) (ownerUSBReceipt, error) {
     if _, _, ok := ownerPrototypeBuildInfo(); !ok {
         return ownerUSBReceipt{}, errors.New("Owner Dev Creator provenance is unavailable")
     }
-    ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+    ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
     defer cancel()
     task, err := ownerUSBTaskConfiguration(ctx)
     if err != nil { return ownerUSBReceipt{}, err }
@@ -438,6 +439,11 @@ func ownerUSBComponentSummary(state ownerUSBUpdateStatus) string {
         // A publication is neither USB readback nor installed/healthy Base.
         componentEvidence = append(componentEvidence,
             fmt.Sprintf(creatorT(msgUSBUpdateBaseAvailable), state.BaseArtifactCommit[:12]))
+    }
+    if state.BaseStatus == "STAGED_NOT_ACTIVATED" &&
+        validLowerHexString(state.BaseArtifactCommit, 40) {
+        componentEvidence = append(componentEvidence,
+            fmt.Sprintf(creatorT(msgUSBUpdateBaseTransferred), state.BaseArtifactCommit[:12]))
     }
     componentEvidence = append(componentEvidence, creatorT(msgUSBUpdateNotActivated))
     return strings.Join(componentEvidence, "\n")

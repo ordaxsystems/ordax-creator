@@ -25,6 +25,8 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 MAX_BUNDLE = 1_000_000_000
 SUBDIR = Path(".ordax") / "updates" / "owner-git"
+BASE_SUBDIR = Path(".ordax") / "updates" / "owner-base"
+BASE_FILES = ("dev-base.json", "vmlinuz", "initrd.gz", "rootfs.tar")
 BUNDLE = "ordax-main.bundle"
 MANIFEST = "owner-git-bundle.txt"
 
@@ -496,6 +498,66 @@ def discover_trusted_volume(expected_serial: str) -> str | None:
     return matches[0] if matches else None
 
 
+def stage_canonical_base(args: argparse.Namespace, volume: Path, letter: str,
+                         before: dict) -> dict:
+    """Media-only adapter; OS dev_channel.py owns the Base manifest and bytes.
+
+    A local HTTPS-acquired candidate is imported using the *same* OS helper,
+    so neither Creator nor this transport invents a Base validation policy.
+    This does not write ESP, Linux ext4 or any boot selector.
+    """
+    if not args.apply or args.inspect or args.repo is not None:
+        raise DeliveryError("Base transfer requires isolated non-activating apply")
+    source = args.base_candidate_dir
+    script = args.canonical_base_script
+    sha = args.base_artifact_commit
+    if (not isinstance(sha, str) or not SHA.fullmatch(sha)
+            or source is None or script is None
+            or not source.is_absolute() or not script.is_absolute()):
+        raise DeliveryError("Base candidate must be pinned to canonical OS source")
+    if (source.is_symlink() or not source.is_dir() or source.name != sha
+            or script.is_symlink() or not script.is_file()):
+        raise DeliveryError("verified Base candidate or OS helper is unavailable")
+    if any((source / name).is_symlink() or not (source / name).is_file()
+           for name in BASE_FILES):
+        raise DeliveryError("verified Base candidate contains an unsafe file")
+    target_root = volume / BASE_SUBDIR
+    ensure_real_ancestors(volume, target_root)
+    total = sum((source / name).stat().st_size for name in BASE_FILES)
+    if (not (target_root / sha).is_dir() and
+            shutil.disk_usage(volume).free <= total + 32 * 1024 * 1024):
+        raise DeliveryError("insufficient ORDAX-DATA space for verified Base transport")
+    # Revalidate the exact device again immediately before invoking OS-owned
+    # file materialization; the output is never treated as an activation.
+    if checked_volume(letter) != before:
+        raise DeliveryError("physical USB identity changed before Base import")
+    command = [
+        sys.executable, "-I", str(script), "--source-commit", sha,
+        "--destination-root", str(target_root),
+        "--source-directory", str(source), "--import-only",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, timeout=600,
+                                check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise DeliveryError("OS-owned Base import could not complete") from exc
+    if result.returncode or not 0 < len(result.stdout) <= 4096:
+        raise DeliveryError("OS-owned Base import refused the candidate")
+    try:
+        response = json.loads(result.stdout)
+    except (UnicodeError, ValueError) as exc:
+        raise DeliveryError("OS Base import returned invalid receipt") from exc
+    if (response.get("status") != "imported-not-activated"
+            or response.get("source_commit") != sha
+            or response.get("path") != str(target_root / sha)
+            or type(response.get("reused")) is not bool):
+        raise DeliveryError("OS Base import did not attest exact on-USB bytes")
+    if checked_volume(letter) != before:
+        raise DeliveryError("physical USB identity changed after Base import")
+    return {"status": "BASE_STAGED_NOT_ACTIVATED", "base_artifact_commit": sha,
+            "reused": response["reused"]}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path)
@@ -508,7 +570,16 @@ def main() -> int:
                         help="also require selected Windows physical disk number")
     parser.add_argument("--apply", action="store_true", help="stage only on verified USB data volume")
     parser.add_argument("--inspect", action="store_true", help="read-only integrity of local USB Git transport")
+    parser.add_argument("--base-candidate-dir", type=Path,
+                        help="canonical OS HTTPS-acquired immutable Base candidate")
+    parser.add_argument("--canonical-base-script", type=Path,
+                        help="exact OS main dev_channel.py exported by the Owner sync")
+    parser.add_argument("--base-artifact-commit",
+                        help="exact 40-hex OS-published Base source commit")
     args = parser.parse_args()
+    base_flags = (args.base_candidate_dir, args.canonical_base_script, args.base_artifact_commit)
+    if any(value is not None for value in base_flags) and not all(value is not None for value in base_flags):
+        parser.error("Base import requires source directory, canonical OS helper and pinned SHA")
     try:
         with exclusive_transport():
             return deliver(args)
@@ -541,6 +612,9 @@ def deliver(args: argparse.Namespace) -> int:
         volume = Path(letter + ":\\")
         target = volume / SUBDIR
         ensure_real_ancestors(volume, target)
+        if getattr(args, "base_candidate_dir", None) is not None:
+            print(json.dumps(stage_canonical_base(args, volume, letter, before)))
+            return 0
         if args.inspect:
             local = verified_local_bundle(target)
             if checked_volume(letter) != before:
