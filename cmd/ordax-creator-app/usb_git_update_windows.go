@@ -65,7 +65,10 @@ func ownerUSBUpdateInProgress() bool {
 }
 
 func ownerUSBSelectedTarget(state appRefreshState, index int) (physicalTarget, error) {
-    if !state.PhysicalReady || state.Error != "" || index < 0 || index >= len(state.Targets) {
+    // A signed/raw full-install writer is unrelated to readback-verified
+    // non-destructive Owner USB transport. Keep independent exact-target
+    // identity and writer/task checks, not the full-media build gate.
+    if state.Error != "" || index < 0 || index >= len(state.Targets) {
         return physicalTarget{}, errors.New("no explicitly selected verified USB")
     }
     target := state.Targets[index]
@@ -75,6 +78,17 @@ func ownerUSBSelectedTarget(state appRefreshState, index int) (physicalTarget, e
         return physicalTarget{}, errors.New("selected USB has no trusted physical identity")
     }
     return target, nil
+}
+
+// Independent of the destructive RAW installer. No side effects; the
+// actual writer still revalidates task binding, live serial, disk, GPT,
+// partition identity, version SHA, free space and completed readback.
+func ownerUSBCanStageSelected(state appRefreshState, index int) bool {
+    failed, succeeded := physicalWriteTerminalFlags()
+    if failed || succeeded { return false }
+    if _, _, ok := ownerPrototypeBuildInfo(); !ok { return false }
+    _, err := ownerUSBSelectedTarget(state, index)
+    return err == nil
 }
 
 func ownerUSBTransportFromTask(task ownerUSBTaskInfo, target physicalTarget, executable string) (ownerUSBTransport, error) {
@@ -128,7 +142,7 @@ func ownerUSBTransportFromTask(task ownerUSBTaskInfo, target physicalTarget, exe
 // authorized in the existing Windows task. It never selects a raw-write target.
 func ownerUSBTrustedTargetFromTask(state appRefreshState, task ownerUSBTaskInfo,
     executable string) (physicalTarget, bool) {
-    if !state.PhysicalReady || state.Error != "" { return physicalTarget{}, false }
+    if state.Error != "" { return physicalTarget{}, false }
     var candidate physicalTarget
     found := false
     for index := range state.Targets {
@@ -144,7 +158,7 @@ func ownerUSBTrustedTargetFromTask(state appRefreshState, task ownerUSBTaskInfo,
 func beginOwnerUSBTrustedProbe(state appRefreshState) {
     failed, succeeded := physicalWriteTerminalFlags()
     if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() ||
-        failed || succeeded || !state.PhysicalReady || state.Error != "" ||
+        failed || succeeded || state.Error != "" ||
         len(state.Targets) == 0 {
         return
     }
@@ -191,7 +205,7 @@ func renderOwnerUSBTrustedReady() {
     state := refreshState
     stateMu.Unlock()
     index := restoredUSBSelectionIndex(candidate, state.Targets)
-    if index < 0 || state.Error != "" || !state.PhysicalReady { return }
+    if index < 0 || state.Error != "" { return }
     if selected := selectedTargetIndex(); selected >= 0 && selected != index { return }
     // A prior locally trusted serial is consent for non-destructive Git
     // transport only. The device is revalidated again inside the writer.
@@ -370,6 +384,8 @@ func ownerUSBTransportFailure(err error) error {
 
 func beginOwnerUSBUpdate() {
     if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() { return }
+    failed, succeeded := physicalWriteTerminalFlags()
+    if failed || succeeded { return }
     stateMu.Lock()
     state := refreshState
     stateMu.Unlock()
@@ -390,6 +406,8 @@ func beginOwnerUSBUpdate() {
 // entry point creates an updater or alters the active Linux installation.
 func startOwnerUSBUpdate(target physicalTarget) {
     if refreshInProgress || writeInProgress() || ownerUSBUpdateInProgress() { return }
+    failed, succeeded := physicalWriteTerminalFlags()
+    if failed || succeeded { return }
     ownerUSBUpdateMu.Lock()
     ownerUSBUpdateResult = ownerUSBUpdateStatus{Active: true}
     ownerUSBUpdateMu.Unlock()

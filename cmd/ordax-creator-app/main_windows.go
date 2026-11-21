@@ -527,11 +527,14 @@ func renderSelectionExperience(state appRefreshState) {
 	if state.Error == "" && state.NoticeID != "" {
 		hint = strings.TrimSpace(hint + " " + creatorT(state.NoticeID))
 	}
+	if !state.PhysicalReady && ownerUSBCanStageSelected(state, selectedTargetIndex()) {
+        hint = strings.TrimSpace(hint + " " + creatorT(msgUSBTransportAvailable))
+    }
 	setCreatorHint(hint)
 
 	busy := writeInProgress() || ownerUSBUpdateInProgress()
 	enable(writeButton, !busy && view.Step == creatorStepReview && view.CanContinue)
-	enable(usbUpdateButton, !busy && view.Step == creatorStepReview && view.CanContinue)
+	enable(usbUpdateButton, !busy && ownerUSBCanStageSelected(state, selectedTargetIndex()))
 	if view.Step == creatorStepReview && view.PrimaryAction != "" {
 		setText(writeButton, view.PrimaryAction)
 	} else {
@@ -574,7 +577,7 @@ func renderRefresh() {
 	stateMu.Unlock()
 
 	selection := -1
-	if state.Error == "" && state.PhysicalReady {
+	if state.Error == "" {
 		selection = restoredUSBSelectionIndex(pendingRefreshSelection, state.Targets)
 	}
 	pendingRefreshSelection = nil

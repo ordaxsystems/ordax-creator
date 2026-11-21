@@ -42,9 +42,16 @@ func TestOwnerUSBUpdateRequiresDeliberatePhysicalSelection(t *testing.T) {
     if _, err := ownerUSBSelectedTarget(state, 0); err == nil {
         t.Fatal("unverified physical selection accepted")
     }
+    // A missing physical RAW full-installer may not block a non-destructive
+    // Git/Base transfer. The device token, source and OS hash checks still do.
+    state.Targets[0] = testOwnerUSBTarget()
     state.PhysicalReady = false
+    if got, err := ownerUSBSelectedTarget(state, 0); err != nil || got.DiskNumber != 1 {
+        t.Fatalf("verified USB wrongly requires a destructive installer: %+v %v", got, err)
+    }
+    state.Error = "device discovery failed"
     if _, err := ownerUSBSelectedTarget(state, 0); err == nil {
-        t.Fatal("backend unavailable but USB update allowed")
+        t.Fatal("unsafe device discovery error allowed USB update")
     }
 }
 
@@ -124,9 +131,16 @@ func TestOwnerUSBTrustedHotplugRequiresUniqueAuthorizedSerial(t *testing.T) {
     if _, ok := ownerUSBTrustedTargetFromTask(state, task, executable); ok {
         t.Fatal("USB without previous local serial authorization was auto-staged")
     }
+    // Restore the exact approved task identity before testing independent
+    // transfer with a deliberately unavailable destructive full-media writer.
+    task.Arguments = strings.Replace(task.Arguments, "UNTRUSTED", "6699E36B", 1)
     state.PhysicalReady = false
+    if _, ok := ownerUSBTrustedTargetFromTask(state, task, executable); !ok {
+        t.Fatal("preauthorized USB transport wrongly tied to RAW installer readiness")
+    }
+    state.Targets[0].DeviceSerial = "OTHER"
     if _, ok := ownerUSBTrustedTargetFromTask(state, task, executable); ok {
-        t.Fatal("unready physical device backend authorized hotplug staging")
+        t.Fatal("unrecognized physical USB serial was auto-staged")
     }
 }
 

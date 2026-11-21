@@ -242,6 +242,19 @@ A ativação/rollback permanece exclusivamente no OS. Fora de um ambiente
 Owner Dev configurado, a atualização incremental é bloqueada, sem procurar
 Python ou scripts arbitrários nem introduzir um caminho público alternativo.
 
+### Independência do botão incremental no Windows
+
+A disponibilidade do botão de preparo Git/Base não depende de
+`PhysicalReady`, pois essa propriedade indica somente a autorização e
+prontidão do gravador de mídia completa. A atualização incremental mantém
+identificação e seleção explícita do dispositivo, serial, token físico,
+restrições de disco, tarefa Owner registrada e verificação de proveniência.
+Os bloqueios após falha/conclusão de gravação destrutiva continuam válidos.
+O botão `Criar OrdaX` permanece submetido às provas do instalador completo
+e não recebe qualquer atalho. Dispositivos sem letra de unidade são
+apresentados como USB físico detectado, sem afirmar falsamente que a mídia
+está danificada. Isso não altera a política de boot ou a autoridade do OS.
+
 ## Base DEV no Creator Windows — aquisição e transporte sem ativação
 
 A ação de preparo do pendrive conserva o fluxo Git existente e, somente
