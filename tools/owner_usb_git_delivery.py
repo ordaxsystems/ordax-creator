@@ -566,9 +566,15 @@ def deliver(args: argparse.Namespace) -> int:
             digest, size = build_bundle(args.repo.resolve(), bundle, commit)
             if checked_volume(letter) != before:
                 raise DeliveryError("physical USB identity changed during packaging")
+            # The main SHA was pinned before packaging. Long bundle generation
+            # must not report "current" if another chat advanced canonical main.
+            if source_commit(args.repo.resolve()) != commit:
+                raise DeliveryError("canonical OS main advanced during USB packaging")
             install_bundle(target, bundle, commit, digest, size)
             if checked_volume(letter) != before:
                 raise DeliveryError("physical USB identity changed after transfer")
+            if source_commit(args.repo.resolve()) != commit:
+                raise DeliveryError("canonical OS main advanced after USB readback; staged revision is not latest")
             print(json.dumps({"status": "STAGED_NOT_ACTIVATED", "source_commit": commit,
                               "sha256": digest, "bytes": size}))
         return 0

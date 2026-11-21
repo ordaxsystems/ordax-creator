@@ -39,6 +39,57 @@ class DeliveryTests(unittest.TestCase):
     def make_bundle(self):
         return APP.build_bundle(self.source, self.bundle, self.sha)
 
+    def test_remote_main_advancing_during_bundle_blocks_stale_usb_write(self):
+        import argparse
+        import contextlib
+        import io
+        args = argparse.Namespace(
+            repo=self.source, volume="E", auto_volume=False,
+            trusted_serial="6699E36B", trusted_disk_number=1,
+            inspect=False, apply=True,
+        )
+        identity = {"serial": "6699E36B", "disk": 1}
+        with (
+            mock.patch.object(APP, "checked_volume", return_value=identity),
+            mock.patch.object(APP, "ensure_real_ancestors"),
+            mock.patch.object(APP, "existing_current", return_value=False),
+            mock.patch.object(APP, "source_commit",
+                              side_effect=[self.sha, "f" * 40]) as source,
+            mock.patch.object(APP, "build_bundle", return_value=("a" * 64, 123)),
+            mock.patch.object(APP, "install_bundle") as install,
+            contextlib.redirect_stderr(io.StringIO()) as error,
+        ):
+            self.assertEqual(APP.deliver(args), 2)
+        install.assert_not_called()
+        self.assertEqual(source.call_count, 2)
+        self.assertIn("main advanced", error.getvalue())
+
+    def test_remote_main_advancing_after_readback_never_reports_current(self):
+        import argparse
+        import contextlib
+        import io
+        args = argparse.Namespace(
+            repo=self.source, volume="E", auto_volume=False,
+            trusted_serial="6699E36B", trusted_disk_number=1,
+            inspect=False, apply=True,
+        )
+        identity = {"serial": "6699E36B", "disk": 1}
+        with (
+            mock.patch.object(APP, "checked_volume", return_value=identity),
+            mock.patch.object(APP, "ensure_real_ancestors"),
+            mock.patch.object(APP, "existing_current", return_value=False),
+            mock.patch.object(APP, "source_commit",
+                              side_effect=[self.sha, self.sha, "f" * 40]),
+            mock.patch.object(APP, "build_bundle", return_value=("a" * 64, 123)),
+            mock.patch.object(APP, "install_bundle") as install,
+            contextlib.redirect_stderr(io.StringIO()) as error,
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(APP.deliver(args), 2)
+        install.assert_called_once()
+        self.assertNotIn("STAGED_NOT_ACTIVATED", output.getvalue())
+        self.assertIn("not latest", error.getvalue())
+
     def test_bundles_only_exact_main_with_matching_sha(self):
         digest, size = self.make_bundle()
         self.assertGreater(size, 0)
