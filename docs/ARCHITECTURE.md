@@ -126,3 +126,42 @@ The Dev, Component and Physical ZIP consumers use `internal/archivebounds` as th
 - No test, document or merge here grants the right to enumerate, repartition, eject, lock or write a real device. Device-specific physical authorization follows the OS-owned procedure in [AGENTS.md](../AGENTS.md).
 
 **Current status authority:** [docs/MIGRATION.md](MIGRATION.md) records historical cutover evidence; [issue #5](https://github.com/ordaxsystems/ordax-creator/issues/5) tracks only outstanding distribution/physical proof, not a second architecture.
+
+## OrdaX Update Engine — consumer Windows e estado de atualização
+
+A autoridade de versão, entrega, integridade, aplicação e recuperação do
+sistema pertence ao `ordax-os`, conforme
+[`docs/DEV-USB-GIT.md`](https://github.com/ordaxsystems/ordax-os/blob/main/docs/DEV-USB-GIT.md#contrato-compartilhado-de-atualização--os-e-creator-2026-11-21).
+O Creator apresenta a ação **Atualizar USB** e fornece o adaptador físico
+Windows. Ele não embute outro `ordax-pull`, não instala Base/Surface por
+Git e não interpreta `CURRENT` como sistema executável instalado.
+
+O adaptador existente
+`cmd/ordax-creator-app/usb_git_update_windows.go` delega ao sincronizador
+`tools/owner_local_sync.py` e ao transporte
+`tools/owner_usb_git_delivery.py`, com seleção/identidade física,
+bloqueio de concorrência, proveniência Git e readback do pacote em
+`ORDAX-DATA`. O recibo `CURRENT` afirma **somente** que o pacote Git
+preparado já corresponde ao código verificado; `STAGED_NOT_ACTIVATED`
+afirma somente que o pacote foi preparado e conferido. Nenhum desses
+recibos verifica o EROFS da Surface, promove Base/kernel/boot ou
+comprova saúde pós-boot.
+
+Consequentemente, após sucesso de transporte Git, a GUI apresenta uma
+conclusão **parcial e explícita**, e não uma barra de 100% para todo o OS.
+As mensagens PT-BR/EN-US e os testes Win32 impedem a promoção semântica
+de staging para ativação. Somente os recibos de instalação/saúde emitidos
+pelos owners reais do OrdaX OS poderão sustentar o estado futuro
+"atualização do sistema concluída".
+
+**Limite ainda aberto:** entregar/validar os artefatos executáveis
+verificados do OS pelo adaptador de mídia existente, compatibilizar
+com o estado instalado e comprovar transação, readback, boot saudável
+e rollback. Isso não está implementado pelo transporte Git e não é
+desbloqueado por este ajuste visual/documental. Os mecanismos assinados
+`appchannel`, `componentchannel` e `physicalchannel` existentes
+permanecem as únicas autoridades do Creator para seus respectivos
+artefatos; nenhuma nova fonte de assinatura ou segundo updater foi criada.
+
+Nenhum teste desta alteração grava mídia física, habilita novos gates
+de publisher ou promove uma versão Stable.
