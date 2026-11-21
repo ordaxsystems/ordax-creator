@@ -191,3 +191,57 @@ func TestOwnerUSBStagingPresentationNeverClaimsOSActivated(t *testing.T) {
         }
     }
 }
+
+func TestOwnerUSBGitStageMatchesPinnedOSUpdateCoverage(t *testing.T) {
+    root := os.Getenv("ORDAX_OS_CONTRACTS_DIR")
+    if root == "" {
+        t.Skip("requires the pinned read-only OS contract checkout")
+    }
+    data, err := os.ReadFile(filepath.Join(root, "device-update-coverage.json"))
+    if err != nil { t.Fatal(err) }
+    var contract struct {
+        Schema string `json:"$schema"`
+        Layers []struct {
+            ID string `json:"id"`
+            Delivery string `json:"development_delivery"`
+            ActivationImplemented *bool `json:"activation_implemented"`
+            RuntimeOneShot *bool `json:"runtime_one_shot_activation_wiring_implemented"`
+            SelfUpdateGap *bool `json:"self_update_gap"`
+        } `json:"layers"`
+    }
+    if err := json.Unmarshal(data, &contract); err != nil { t.Fatal(err) }
+    if contract.Schema != "prototype-ordax.device-update-coverage/1" {
+        t.Fatalf("unsupported OS coverage authority %q", contract.Schema)
+    }
+    layers := map[string]struct {
+        ID string
+        Delivery string
+        ActivationImplemented *bool
+        RuntimeOneShot *bool
+        SelfUpdateGap *bool
+    }{}
+    for _, layer := range contract.Layers {
+        if _, found := layers[layer.ID]; found { t.Fatalf("duplicate OS layer %q", layer.ID) }
+        layers[layer.ID] = layer
+    }
+    rootfs, ok := layers["development-rootfs"]
+    if !ok || rootfs.Delivery != "exact-commit-development-base-rootfs-candidate" ||
+        rootfs.ActivationImplemented == nil || *rootfs.ActivationImplemented ||
+        rootfs.RuntimeOneShot == nil || *rootfs.RuntimeOneShot {
+        t.Fatal("Creator Git-only staging cannot claim Base activation while OS rootfs activation is unavailable")
+    }
+    kernel, ok := layers["kernel-and-initramfs"]
+    if !ok || kernel.RuntimeOneShot == nil || *kernel.RuntimeOneShot {
+        t.Fatal("Creator Git staging cannot claim kernel/initramfs activation")
+    }
+    loader, ok := layers["uefi-fallback-loader"]
+    if !ok || loader.SelfUpdateGap == nil || !*loader.SelfUpdateGap {
+        t.Fatal("Creator Git staging cannot claim UEFI loader self-update")
+    }
+    for _, locale := range []creatorLocale{creatorLocalePTBR, creatorLocaleENUS} {
+        action := strings.ToLower(creatorMessageFor(locale, msgUSBUpdateAction, nil))
+        if !strings.Contains(action, "git") {
+            t.Fatalf("Git-only Creator action must identify its real scope: %q", action)
+        }
+    }
+}
