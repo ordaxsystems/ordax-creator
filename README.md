@@ -1,5 +1,15 @@
 # OrdaX Creator
 
+## Governança documental multi-repositório
+
+A [entrada canônica da documentação transversal](https://github.com/ordaxsystems/ordax-os/blob/main/docs/README.md) e o [contrato de ownership](https://github.com/ordaxsystems/ordax-os/blob/main/docs/contracts/repository-ownership.json) definem **onde encontrar a autoridade**, não transferem para o OS o código, as APIs locais ou as responsabilidades dos outros owners.
+
+- Normas globais de arquitetura, composição, segurança e integração pertencem aos documentos e contratos canônicos indicados pelo índice do OS. Não duplicar essas regras aqui nem criar um SSOT paralelo.
+- Este repositório continua autoridade para seu próprio source, contratos que produz, guias de operação, testes e evidências. Documentos locais não podem alterar silenciosamente contratos de outro owner.
+- Em conflito, prevalecem o source/contrato vigente do owner aplicável e o índice de autoridades; planos, handoffs e evidências datadas não substituem estado vivo.
+- Alterações cross-repo devem atualizar a autoridade primária e somente os links/consumidores afetados, sem sincronização artificial de versões, rebuilds ou PRs.
+
+
 Standalone source of **OrdaX Creator**, using the verified-media preparation Core extracted from [ordax-os](https://github.com/ordaxsystems/ordax-os). The Go module now uses `github.com/ordaxsystems/ordax-creator` and includes the existing Windows Win32 GUI, platform adapters and three signed-consumer channels.
 
 **Migration status: C6 source extraction and OS consumer cutover COMPLETE (2026-10-24).** OS PRs [#2222](https://github.com/ordaxsystems/ordax-os/pull/2222) and [#2000](https://github.com/ordaxsystems/ordax-os/pull/2000) removed the duplicate Go implementation and integrated the independent 17-source bindings. OS-owned Python media producers remain under `ordax-os/tools/creator/` by design. The `ordax-os` remains sole producer/authority for Base, kernel, boot, official releases, media/storage layouts, physical promotion and signing policy. **No signed Stable release or live hardware write is authorized by C6.**
