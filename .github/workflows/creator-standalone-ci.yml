@@ -6,16 +6,17 @@ on:
       - main
     paths:
       - .github/workflows/creator-standalone-ci.yml
+      - .github/ordax-os-contracts.lock.json
       - core/**
       - cmd/**
       - host/**
       - appchannel/**
       - componentchannel/**
-      - proof/**
       - physicalchannel/**
       - internal/**
       - update/**
       - go.mod
+      - go.sum
       - version.json
       - tools/owner_release.py
       - tools/test_owner_release.py
@@ -26,6 +27,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/creator-standalone-ci.yml
+      - .github/ordax-os-contracts.lock.json
       - core/**
       - cmd/**
       - host/**
@@ -35,6 +37,7 @@ on:
       - internal/**
       - update/**
       - go.mod
+      - go.sum
       - version.json
       - tools/owner_release.py
       - tools/test_owner_release.py
