@@ -245,6 +245,54 @@ class LocalSyncTests(unittest.TestCase):
         update_app.assert_not_called()
         self.assertIn("missing selected physical USB", stderr.getvalue())
 
+    def test_creator_ui_retries_only_existing_writer_mutex_collision(self):
+        busy = SYNC.subprocess.CompletedProcess(
+            ["python"], 2, "", "OWNER_USB_GIT_DELIVERY=BLOCKED:Owner USB transport already running")
+        ready = SYNC.subprocess.CompletedProcess(["python"], 0, '{"status": "CURRENT"}', "")
+        with (
+            mock.patch.object(SYNC.subprocess, "run", side_effect=[busy, ready]) as run,
+            mock.patch.object(SYNC.time, "sleep") as sleep,
+        ):
+            actual = SYNC.run_owner_usb_transport(["python", "existing_writer.py"],
+                                                  from_creator_ui=True)
+        self.assertIs(actual, ready)
+        self.assertEqual(run.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_scheduled_task_defers_on_existing_writer_mutex(self):
+        busy = SYNC.subprocess.CompletedProcess(
+            ["python"], 2, "", "OWNER_USB_GIT_DELIVERY=BLOCKED:Owner USB transport already running")
+        with (
+            mock.patch.object(SYNC.subprocess, "run", return_value=busy) as run,
+            mock.patch.object(SYNC.time, "sleep") as sleep,
+        ):
+            self.assertIsNone(SYNC.run_owner_usb_transport(["python"], from_creator_ui=False))
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_invalid_usb_never_retried_as_transient_mutex_collision(self):
+        failed = SYNC.subprocess.CompletedProcess(
+            ["python"], 2, "", "OWNER_USB_GIT_DELIVERY=BLOCKED:USB serial changed")
+        with (
+            mock.patch.object(SYNC.subprocess, "run", return_value=failed) as run,
+            mock.patch.object(SYNC.time, "sleep") as sleep,
+        ):
+            self.assertIs(SYNC.run_owner_usb_transport(["python"], from_creator_ui=True), failed)
+        run.assert_called_once()
+        sleep.assert_not_called()
+
+    @unittest.skipUnless(__import__("os").name == "nt", "Windows native cache lock")
+    def test_git_main_stage_lock_serializes_without_removing_lockfile(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
+                SYNC.os.environ, {"LOCALAPPDATA": temp}):
+            with SYNC.owner_usb_stage_gate(0.0) as first:
+                self.assertTrue(first)
+                with SYNC.owner_usb_stage_gate(0.0) as second:
+                    self.assertFalse(second)
+            with SYNC.owner_usb_stage_gate(0.0) as third:
+                self.assertTrue(third)
+            self.assertTrue((Path(temp) / "OrdaX-Creator" / "owner-main-delivery.lock").exists())
+
     def test_trusted_usb_staging_defers_during_creator_physical_session(self):
         with mock.patch.object(SYNC, "creator_process_active", return_value=True):
             self.assertEqual(SYNC.stage_owner_usb_dev("6699E36B"),
